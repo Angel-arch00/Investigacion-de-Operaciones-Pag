@@ -7,22 +7,23 @@ document.addEventListener('DOMContentLoaded', () => {
   initDashboardTabs();
   
   // Initialize dynamic forms
+  initGraphicalForm();
   initSimplexForm();
   initHungarianForm();
   initTransportForm();
   
   // Bind Solver buttons
+  document.getElementById('btn-solve-graphical').addEventListener('click', solveGraphicalModel);
   document.getElementById('btn-solve-simplex').addEventListener('click', solveSimplexModel);
   document.getElementById('btn-solve-hungarian').addEventListener('click', solveHungarianModel);
   document.getElementById('btn-solve-transport').addEventListener('click', solveTransportModel);
   document.getElementById('btn-calculate-eoq').addEventListener('click', solveEoqModel);
   document.getElementById('btn-solve-markov').addEventListener('click', solveMarkovModel);
 
-  // EOQ auto recalculate once
+  // Auto solve once on startup
+  solveGraphicalModel();
   solveEoqModel();
-  // Markov auto recalculate once
   solveMarkovModel();
-  // Simplex auto solve once
   solveSimplexModel();
 
   // Redraw charts on window resize to ensure responsiveness
@@ -30,7 +31,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const activeTab = document.querySelector('.dash-preview-tab.active');
     if (activeTab) {
       const target = activeTab.getAttribute('data-tab');
-      if (target === 'simplex') {
+      if (target === 'graphical') {
+        solveGraphicalModel();
+      } else if (target === 'simplex') {
         const selectVars = document.getElementById('simplex-vars-count');
         if (selectVars && parseInt(selectVars.value) === 2) {
           solveSimplexModel();
@@ -182,6 +185,8 @@ function initDashboardTabs() {
         setTimeout(solveEoqModel, 100);
       } else if (target === 'simplex') {
         setTimeout(solveSimplexModel, 100);
+      } else if (target === 'graphical') {
+        setTimeout(solveGraphicalModel, 100);
       }
     });
   });
@@ -652,7 +657,7 @@ function solveSimplexModel() {
   output.innerHTML = finalHTML;
 
   if (numVars === 2) {
-    drawGraphicalMethod(optType, numVars, numConst, c, A, signs, b, optimalValues, finalZ);
+    drawGraphicalMethod('live-simplex-canvas', 'simplex-graphical-interpretation-text', optType, numVars, numConst, c, A, signs, b, optimalValues, finalZ);
   }
 }
 
@@ -1666,7 +1671,7 @@ function solveMarkovModel() {
 }
 
 /* -------------------------------------------------------------
-   7. GRAPHICAL METHOD 2D CHART RENDERER
+   7. GRAPHICAL METHOD 2D CHART RENDERER & SOLVER HELPERS
    ------------------------------------------------------------- */
 function getIntersection(a1, b1, c1, a2, b2, c2) {
   const det = a1 * b2 - a2 * b1;
@@ -1676,40 +1681,18 @@ function getIntersection(a1, b1, c1, a2, b2, c2) {
   return { x, y };
 }
 
-function drawGraphicalMethod(optType, numVars, numConst, c, A, signs, b, optimalValues, finalZ) {
-  if (numVars !== 2) return;
+function computeGraphicalSolution(optType, c, A, signs, b) {
+  const numConst = A.length;
   
-  const canvas = document.getElementById('live-simplex-canvas');
-  if (!canvas) return;
-  const ctx = canvas.getContext('2d');
-  
-  // Set dimensions based on wrapper size
-  const parent = canvas.parentNode;
-  canvas.width = parent.clientWidth;
-  canvas.height = parent.clientHeight || 320;
-
-  const w = canvas.width;
-  const h = canvas.height;
-  const padLeft = 45;
-  const padBottom = 40;
-  const padTop = 20;
-  const padRight = 20;
-  
-  ctx.clearRect(0, 0, w, h);
-  
-  // Find intersections to scale bounds
+  // Find all intersections to scale bounds
   let points = [];
   const lines = [];
-  
-  // Add actual constraints
   for (let i = 0; i < numConst; i++) {
-    lines.push({ a1: A[i][0], a2: A[i][1], b: b[i], label: `R${i+1}` });
+    lines.push({ a1: A[i][0], a2: A[i][1], b: b[i] });
   }
-  // Add axes boundaries
-  lines.push({ a1: 1, a2: 0, b: 0, label: 'x2-axis' });
-  lines.push({ a1: 0, a2: 1, b: 0, label: 'x1-axis' });
+  lines.push({ a1: 1, a2: 0, b: 0 }); // x = 0
+  lines.push({ a1: 0, a2: 1, b: 0 }); // y = 0
   
-  // Intersect all lines to find first-quadrant candidates
   for (let i = 0; i < lines.length; i++) {
     for (let j = i + 1; j < lines.length; j++) {
       const pt = getIntersection(lines[i].a1, lines[i].a2, lines[i].b, lines[j].a1, lines[j].a2, lines[j].b);
@@ -1728,30 +1711,19 @@ function drawGraphicalMethod(optType, numVars, numConst, c, A, signs, b, optimal
   if (maxX > 1000) maxX = 100;
   if (maxY > 1000) maxY = 100;
   
-  const optX = optimalValues && optimalValues['x1'] !== undefined ? optimalValues['x1'] : 0;
-  const optY = optimalValues && optimalValues['x2'] !== undefined ? optimalValues['x2'] : 0;
-  
-  if (optX > 0) maxX = Math.max(maxX, optX);
-  if (optY > 0) maxY = Math.max(maxY, optY);
-  
-  maxX = maxX * 1.3;
-  maxY = maxY * 1.3;
+  maxX = maxX * 1.35;
+  maxY = maxY * 1.35;
   
   if (maxX < 1) maxX = 10;
   if (maxY < 1) maxY = 10;
   
-  // Coordinate transformations
-  const getX = x => padLeft + (x / maxX) * (w - padLeft - padRight);
-  const getY = y => h - padBottom - (y / maxY) * (h - padBottom - padTop);
-  
-  // Add viewport limit lines to complete polygon clipping
+  // Add viewport lines
   const viewportLines = [
     ...lines,
-    { a1: 1, a2: 0, b: maxX, label: 'limit-x' },
-    { a1: 0, a2: 1, b: maxY, label: 'limit-y' }
+    { a1: 1, a2: 0, b: maxX },
+    { a1: 0, a2: 1, b: maxY }
   ];
   
-  // Evaluate all possible corners of viewportLines to find feasible ones
   const allCorners = [];
   for (let i = 0; i < viewportLines.length; i++) {
     for (let j = i + 1; j < viewportLines.length; j++) {
@@ -1786,6 +1758,84 @@ function drawGraphicalMethod(optType, numVars, numConst, c, A, signs, b, optimal
     }
   }
   
+  // If no feasible corner points, it's infeasible
+  if (feasibleCorners.length === 0) {
+    return { maxX, maxY, feasibleCorners, optimalPt: null, finalZ: 0, infeasible: true, unbounded: false };
+  }
+  
+  // Find optimal point among feasible corners
+  let optimalPt = null;
+  let bestZ = optType === 'max' ? -Infinity : Infinity;
+  
+  feasibleCorners.forEach(pt => {
+    const z = c[0] * pt.x + c[1] * pt.y;
+    if (optType === 'max') {
+      if (z > bestZ) {
+        bestZ = z;
+        optimalPt = pt;
+      }
+    } else {
+      if (z < bestZ) {
+        bestZ = z;
+        optimalPt = pt;
+      }
+    }
+  });
+  
+  // Check if unbounded
+  let unbounded = false;
+  if (optimalPt) {
+    const onLimitX = Math.abs(optimalPt.x - maxX) < 1e-3;
+    const onLimitY = Math.abs(optimalPt.y - maxY) < 1e-3;
+    if (onLimitX || onLimitY) {
+      unbounded = true;
+    }
+  }
+  
+  return {
+    maxX,
+    maxY,
+    feasibleCorners,
+    optimalPt,
+    finalZ: bestZ,
+    infeasible: false,
+    unbounded
+  };
+}
+
+function drawGraphicalMethod(canvasId, interpretationTextId, optType, numVars, numConst, c, A, signs, b, optimalValues, finalZ) {
+  if (numVars !== 2) return;
+  
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  
+  // Set dimensions based on wrapper size
+  const parent = canvas.parentNode;
+  canvas.width = parent.clientWidth;
+  canvas.height = parent.clientHeight || 320;
+
+  const w = canvas.width;
+  const h = canvas.height;
+  const padLeft = 45;
+  const padBottom = 40;
+  const padTop = 20;
+  const padRight = 20;
+  
+  ctx.clearRect(0, 0, w, h);
+  
+  const sol = computeGraphicalSolution(optType, c, A, signs, b);
+  const maxX = sol.maxX;
+  const maxY = sol.maxY;
+  const feasibleCorners = sol.feasibleCorners;
+  const optimalPt = sol.optimalPt;
+  const isUnbounded = sol.unbounded;
+  const isInfeasible = sol.infeasible;
+
+  // Coordinate transformations
+  const getX = x => padLeft + (x / maxX) * (w - padLeft - padRight);
+  const getY = y => h - padBottom - (y / maxY) * (h - padBottom - padTop);
+  
   // Draw Grid Lines & Values
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
   ctx.lineWidth = 1;
@@ -1811,7 +1861,7 @@ function drawGraphicalMethod(optType, numVars, numConst, c, A, signs, b, optimal
   }
   
   // Fill Feasible Region Polygon
-  if (feasibleCorners.length >= 3) {
+  if (!isInfeasible && feasibleCorners.length >= 3) {
     const cx = feasibleCorners.reduce((sum, p) => sum + p.x, 0) / feasibleCorners.length;
     const cy = feasibleCorners.reduce((sum, p) => sum + p.y, 0) / feasibleCorners.length;
     
@@ -1888,10 +1938,10 @@ function drawGraphicalMethod(optType, numVars, numConst, c, A, signs, b, optimal
   }
   
   // Draw Z objective function line (dashed)
-  if (optX > 0 || optY > 0) {
+  if (optimalPt) {
     const c1 = c[0];
     const c2 = c[1];
-    const zVal = finalZ;
+    const zVal = sol.finalZ;
     
     let zStart, zEnd;
     if (Math.abs(c2) < 1e-9) {
@@ -1935,29 +1985,27 @@ function drawGraphicalMethod(optType, numVars, numConst, c, A, signs, b, optimal
   }
   
   // Draw Optimal Dot
-  if (optX > 0 || optY > 0) {
-    if (isFeasible(optX, optY)) {
-      const oX = getX(optX);
-      const oY = getY(optY);
-      
-      ctx.fillStyle = '#27c93f';
-      ctx.shadowBlur = 10;
-      ctx.shadowColor = '#27c93f';
-      ctx.beginPath();
-      ctx.arc(oX, oY, 5, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.shadowBlur = 0; // reset
-      
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.arc(oX, oY, 5, 0, Math.PI * 2);
-      ctx.stroke();
-      
-      ctx.fillStyle = '#27c93f';
-      ctx.font = 'bold 9px sans-serif';
-      ctx.fillText(`Óptimo (${optX.toFixed(2)}, ${optY.toFixed(2)})`, oX + 8, oY - 4);
-    }
+  if (optimalPt) {
+    const oX = getX(optimalPt.x);
+    const oY = getY(optimalPt.y);
+    
+    ctx.fillStyle = '#27c93f';
+    ctx.shadowBlur = 10;
+    ctx.shadowColor = '#27c93f';
+    ctx.beginPath();
+    ctx.arc(oX, oY, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0; // reset
+    
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(oX, oY, 5, 0, Math.PI * 2);
+    ctx.stroke();
+    
+    ctx.fillStyle = '#27c93f';
+    ctx.font = 'bold 9px sans-serif';
+    ctx.fillText(`Óptimo (${optimalPt.x.toFixed(2)}, ${optimalPt.y.toFixed(2)})`, oX + 8, oY - 4);
   }
   
   // Draw Main Axes
@@ -1975,9 +2023,16 @@ function drawGraphicalMethod(optType, numVars, numConst, c, A, signs, b, optimal
   ctx.fillText('x₂', padLeft - 15, padTop + 5);
   
   // Update interpretation text description
-  const interpretationText = document.getElementById('simplex-graphical-interpretation-text');
+  const interpretationText = document.getElementById(interpretationTextId);
   if (interpretationText) {
-    let html = `El área sombreada representa la <strong>Región Factible</strong>.<br><br>`;
+    let html = "";
+    if (isInfeasible) {
+      html += `<div style="color:#ff5f56; font-weight:bold; margin-bottom: 8px;">⚠️ Sistema Infactible (Región Vacía)</div>`;
+      html += `No hay un área donde se cumplan todas las restricciones simultáneamente.<br><br>`;
+    } else {
+      html += `El área sombreada representa la <strong>Región Factible</strong>.<br><br>`;
+    }
+    
     html += `Restricciones del sistema:<br>`;
     for (let i = 0; i < numConst; i++) {
       const colors = ['cyan', 'purple', 'blue', 'orange'];
@@ -1985,11 +2040,251 @@ function drawGraphicalMethod(optType, numVars, numConst, c, A, signs, b, optimal
       const signLabel = signs[i] === '<=' ? '&le;' : (signs[i] === '>=' ? '&ge;' : '=');
       html += `<div style="margin: 2px 0;"><span style="display:inline-block; width:8px; height:8px; background:${colors[i%colors.length]}; border-radius:2px; margin-right:5px;"></span><strong>R${i+1}</strong>: ${A[i][0]}x₁ + ${A[i][1]}x₂ ${signLabel} ${b[i]}</div>`;
     }
-    if (optX > 0 || optY > 0) {
-      html += `<br><div style="border-top:1px solid rgba(255,255,255,0.05); padding-top:6px; margin-top:6px;">El punto óptimo se ubica en <strong>x₁ = ${optX.toFixed(2)}</strong>, <strong>x₂ = ${optY.toFixed(2)}</strong>, alcanzando <strong>Z = ${finalZ.toFixed(2)}</strong>.</div>`;
-    } else {
-      html += `<br><div style="border-top:1px solid rgba(255,255,255,0.05); padding-top:6px; margin-top:6px; color:#ff5f56;">No se encontró solución óptima factible o acotada.</div>`;
+    
+    if (isInfeasible) {
+      // no optimal point
+    } else if (isUnbounded) {
+      html += `<br><div style="border-top:1px solid rgba(255,255,255,0.05); padding-top:6px; margin-top:6px; color:#ffbd2e; font-weight:bold;">⚠️ Región Factible No Acotada.</div>`;
+      html += `El valor de Z puede crecer indefinidamente dentro de la dirección de optimización.`;
+    } else if (optimalPt) {
+      html += `<br><div style="border-top:1px solid rgba(255,255,255,0.05); padding-top:6px; margin-top:6px;">El punto óptimo se ubica en <strong>x₁ = ${optimalPt.x.toFixed(2)}</strong>, <strong>x₂ = ${optimalPt.y.toFixed(2)}</strong>, alcanzando <strong>Z = ${sol.finalZ.toFixed(2)}</strong>.</div>`;
     }
     interpretationText.innerHTML = html;
   }
+}
+
+/* -------------------------------------------------------------
+   8. DEDICATED GRAPHICAL METHOD TAB IMPLEMENTATION
+   ------------------------------------------------------------- */
+function initGraphicalForm() {
+  const selectConst = document.getElementById('graphical-const-count');
+  if (!selectConst) return;
+
+  const rebuild = () => {
+    const numConst = parseInt(selectConst.value);
+    
+    // Generate Objective Row (always 2 variables)
+    const objRow = document.getElementById('graphical-obj-row');
+    objRow.innerHTML = '';
+    const objLabel = document.createElement('span');
+    objLabel.className = 'var-term';
+    objLabel.innerHTML = 'Z = &nbsp;';
+    objRow.appendChild(objLabel);
+
+    for (let j = 1; j <= 2; j++) {
+      const cell = document.createElement('div');
+      cell.className = 'coeff-cell';
+      cell.innerHTML = `
+        <input type="number" id="graphical-c-${j}" value="${j === 1 ? 3 : 5}" class="solver-input">
+        <span class="var-term">x<sub>${j}</sub></span>
+        ${j < 2 ? '<span class="var-term">&nbsp;+&nbsp;</span>' : ''}
+      `;
+      objRow.appendChild(cell);
+    }
+
+    // Generate Constraints
+    const constContainer = document.getElementById('graphical-constraints-container');
+    constContainer.innerHTML = '';
+
+    for (let i = 1; i <= numConst; i++) {
+      const row = document.createElement('div');
+      row.className = 'constraint-row';
+      
+      let varsHTML = '';
+      for (let j = 1; j <= 2; j++) {
+        let defaultVal = 1;
+        if (i === 1 && j === 1) defaultVal = 1;
+        else if (i === 1 && j === 2) defaultVal = 0; // x1 <= 4
+        else if (i === 2 && j === 1) defaultVal = 0;
+        else if (i === 2 && j === 2) defaultVal = 2; // 2x2 <= 12
+        else if (i === 3 && j === 1) defaultVal = 3;
+        else if (i === 3 && j === 2) defaultVal = 2; // 3x1 + 2x2 <= 18
+        else if (i === 4 && j === 1) defaultVal = 1;
+        else if (i === 4 && j === 2) defaultVal = 1; // x1 + x2 <= 8
+
+        varsHTML += `
+          <div class="coeff-cell">
+            <input type="number" id="graphical-a-${i}-${j}" value="${defaultVal}" class="solver-input">
+            <span class="var-term">x<sub>${j}</sub></span>
+            ${j < 2 ? '<span class="var-term">&nbsp;+&nbsp;</span>' : ''}
+          </div>
+        `;
+      }
+
+      let defaultRHS = 10;
+      if (i === 1) defaultRHS = 4;
+      else if (i === 2) defaultRHS = 12;
+      else if (i === 3) defaultRHS = 18;
+      else if (i === 4) defaultRHS = 8;
+
+      row.innerHTML = `
+        <span class="var-term" style="margin-right:0.5rem; color: var(--text-gray-dark);">[${i}]</span>
+        ${varsHTML}
+        <select id="graphical-sign-${i}" class="solver-select constraint-sign">
+          <option value="<=" selected>&le;</option>
+          <option value=">=">&ge;</option>
+          <option value="=">=</option>
+        </select>
+        <input type="number" id="graphical-rhs-${i}" value="${defaultRHS}" class="solver-input" style="width: 60px; text-align:center; padding:0;">
+      `;
+      constContainer.appendChild(row);
+    }
+  };
+
+  selectConst.addEventListener('change', rebuild);
+  rebuild();
+}
+
+function solveGraphicalModel() {
+  const optType = document.getElementById('graphical-opt-type').value;
+  const numConst = parseInt(document.getElementById('graphical-const-count').value);
+  const output = document.getElementById('graphical-output-area');
+  
+  if (!output) return;
+  output.innerHTML = '<h3 style="color: var(--primary-cyan); margin-bottom:1rem;">Ejecutando algoritmo gráfico...</h3>';
+
+  const c = [
+    parseFloat(document.getElementById('graphical-c-1').value) || 0,
+    parseFloat(document.getElementById('graphical-c-2').value) || 0
+  ];
+
+  const A = [];
+  const signs = [];
+  const b = [];
+  for (let i = 1; i <= numConst; i++) {
+    const a1 = parseFloat(document.getElementById(`graphical-a-${i}-1`).value) || 0;
+    const a2 = parseFloat(document.getElementById(`graphical-a-${i}-2`).value) || 0;
+    const sign = document.getElementById(`graphical-sign-${i}`).value;
+    const rhs = parseFloat(document.getElementById(`graphical-rhs-${i}`).value) || 0;
+    A.push([a1, a2]);
+    signs.push(sign);
+    b.push(rhs);
+  }
+
+  // Preprocess: RHS >= 0
+  for (let i = 0; i < numConst; i++) {
+    if (b[i] < 0) {
+      b[i] = -b[i];
+      A[i][0] = -A[i][0];
+      A[i][1] = -A[i][1];
+      if (signs[i] === '<=') signs[i] = '>=';
+      else if (signs[i] === '>=') signs[i] = '<=';
+    }
+  }
+
+  // Compute solution
+  const sol = computeGraphicalSolution(optType, c, A, signs, b);
+  
+  let finalHTML = `
+    <div class="iteration-tableau-card" style="border-color: var(--border-active);">
+      <h4 style="color: var(--primary-cyan); font-size: 0.95rem; margin-bottom: 0.5rem;">Formulación del Problema</h4>
+      <div style="font-family: monospace; font-size: 0.85rem; line-height: 1.5; padding: 0.8rem; background: rgba(0,0,0,0.3); border-radius: 6px;">
+        <strong>Objetivo:</strong> ${optType === 'max' ? 'Max' : 'Min'} Z = ${c[0]}x₁ + ${c[1]}x₂<br>
+        <strong>Sujeto a:</strong><br>
+  `;
+  for (let i = 0; i < numConst; i++) {
+    const signLabel = signs[i] === '<=' ? '&le;' : (signs[i] === '>=' ? '&ge;' : '=');
+    finalHTML += `&nbsp;&nbsp;[${i+1}] ${A[i][0]}x₁ + ${A[i][1]}x₂ ${signLabel} ${b[i]}<br>`;
+  }
+  finalHTML += `&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;x₁, x₂ &ge; 0`;
+  finalHTML += `</div></div>`;
+
+  if (sol.infeasible) {
+    finalHTML += `
+      <div class="optimal-solution-card" style="border-color: #ffbd2e; background: rgba(255,189,46,0.05); margin-top: 1rem;">
+        <h4 style="color:#ffbd2e;">⚠️ Sistema Infactible</h4>
+        <p style="font-size:0.85rem; line-height:1.5; color: var(--text-gray-light);">
+          No existe una solución factible que cumpla con todas las restricciones del modelo de forma simultánea. La región factible es vacía.
+        </p>
+      </div>
+    `;
+  } else {
+    // Generate vertices table HTML
+    let tableRows = "";
+    sol.feasibleCorners.forEach((pt, idx) => {
+      const zVal = c[0] * pt.x + c[1] * pt.y;
+      const isOpt = sol.optimalPt && Math.abs(pt.x - sol.optimalPt.x) < 1e-4 && Math.abs(pt.y - sol.optimalPt.y) < 1e-4;
+      tableRows += `
+        <tr class="${isOpt ? 'simplex-pivot-row' : ''}">
+          <td><strong>V${idx + 1}</strong></td>
+          <td>(${pt.x.toFixed(2)}, ${pt.y.toFixed(2)})</td>
+          <td style="${isOpt ? 'color: #27c93f; font-weight: bold;' : ''}">${zVal.toFixed(2)}</td>
+          <td>${isOpt ? '<span style="color:#27c93f; font-weight:bold;">🏆 ÓPTIMO</span>' : '<span style="color:var(--text-gray-muted);">Factible</span>'}</td>
+        </tr>
+      `;
+    });
+
+    finalHTML += `
+      <div class="iteration-tableau-card" style="margin-top: 1rem;">
+        <div class="simplex-iteration-title">
+          <span>Evaluación de Vértices de la Región Factible</span>
+        </div>
+        <div class="simplex-table-wrapper">
+          <table class="simplex-table">
+            <thead>
+              <tr>
+                <th>Vértice</th>
+                <th>Coordenadas (x₁, x₂)</th>
+                <th>Z = ${c[0]}x₁ + ${c[1]}x₂</th>
+                <th>Estado</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${tableRows}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+
+    if (sol.unbounded) {
+      finalHTML += `
+        <div class="optimal-solution-card" style="border-color: #ff5f56; background: rgba(255,95,86,0.05); margin-top: 1rem;">
+          <h4 style="color:#ff5f56;">⚠️ Solución Ilimitada</h4>
+          <p style="font-size:0.85rem; line-height:1.5; color: var(--text-gray-light);">
+            El problema no está acotado. El área factible se extiende infinitamente y el valor de Z puede mejorar de forma indefinida en la dirección óptima.
+          </p>
+        </div>
+      `;
+    } else if (sol.optimalPt) {
+      finalHTML += `
+        <div class="optimal-solution-card" style="margin-top: 1rem;">
+          <h4>🏆 Solución Óptima Encontrada (Método Gráfico)</h4>
+          <p style="font-size: 0.85rem; color: var(--text-gray-muted); margin-bottom: 0.8rem;">
+            Al evaluar los vértices de la región factible, el óptimo se encuentra en el vértice:
+          </p>
+          <div class="optimal-vars-list">
+            <div class="optimal-var-item">x₁ = <span>${sol.optimalPt.x.toFixed(2)}</span></div>
+            <div class="optimal-var-item">x₂ = <span>${sol.optimalPt.y.toFixed(2)}</span></div>
+            <div class="optimal-var-item" style="border-top:1px solid rgba(255,255,255,0.08); padding-top:0.5rem; margin-top:0.3rem;">
+              Valor Óptimo Z = <span style="color: #27c93f; font-size:1.15rem;">${sol.finalZ.toFixed(2)}</span>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+  }
+
+  // Graphical Card
+  finalHTML += `
+    <div class="iteration-tableau-card" style="border-color: var(--primary-cyan); margin-top: 1.5rem;">
+      <div class="simplex-iteration-title">
+        <span>Solución Gráfica (Regiones Factibles)</span>
+        <span style="font-family: monospace; font-size: 0.75rem; color: var(--text-gray-dark);">[grafica-2d]</span>
+      </div>
+      <div class="simplex-graphical-layout" style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 1.5rem; padding: 1.5rem; text-align: left;">
+        <div style="position: relative; width: 100%; height: 320px; background: rgba(0,0,0,0.25); border: 1px solid var(--border-light); border-radius: 8px; overflow: hidden; padding: 0.5rem;">
+          <canvas id="live-graphical-canvas" style="width: 100%; height: 100%;"></canvas>
+        </div>
+        <div class="simplex-interpretation" style="margin: 0; display: flex; flex-direction: column; justify-content: center;">
+          <strong>📈 Interpretación Gráfica:</strong><br>
+          <div id="graphical-interpretation-text" style="font-size: 0.85rem; line-height: 1.5; color: var(--text-gray-light); margin-top: 0.5rem;"></div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  output.innerHTML = finalHTML;
+
+  drawGraphicalMethod('live-graphical-canvas', 'graphical-interpretation-text', optType, 2, numConst, c, A, signs, b, sol.optimalPt ? { x1: sol.optimalPt.x, x2: sol.optimalPt.y } : null, sol.finalZ);
 }

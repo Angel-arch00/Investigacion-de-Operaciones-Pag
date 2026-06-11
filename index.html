@@ -42,6 +42,7 @@
         TAURO<span>.IO</span>
       </a>
       <ul class="nav-links" id="nav-links">
+        <li><a href="#" class="nav-tab-link" data-tab="graphical">Método Gráfico</a></li>
         <li><a href="#" class="nav-tab-link" data-tab="simplex">Simplex / Gran M</a></li>
         <li><a href="#" class="nav-tab-link" data-tab="hungarian">Método Húngaro</a></li>
         <li><a href="#" class="nav-tab-link" data-tab="transport">Transporte</a></li>
@@ -75,19 +76,86 @@
             <div class="dash-dot"></div>
           </div>
           <div class="dash-preview-tabs">
-            <button class="dash-preview-tab active" data-tab="simplex">Simplex & Gran M</button>
-            <button class="dash-preview-tab purple-tab" data-tab="hungarian">Método Húngaro</button>
-            <button class="dash-preview-tab" data-tab="transport">Matriz de Transporte</button>
-            <button class="dash-preview-tab purple-tab" data-tab="eoq">Inventarios (EOQ)</button>
-            <button class="dash-preview-tab" data-tab="markov">Cadenas de Markov</button>
+            <button class="dash-preview-tab active" data-tab="graphical">Método Gráfico</button>
+            <button class="dash-preview-tab purple-tab" data-tab="simplex">Simplex & Gran M</button>
+            <button class="dash-preview-tab" data-tab="hungarian">Método Húngaro</button>
+            <button class="dash-preview-tab purple-tab" data-tab="transport">Matriz de Transporte</button>
+            <button class="dash-preview-tab" data-tab="eoq">Inventarios (EOQ)</button>
+            <button class="dash-preview-tab purple-tab" data-tab="markov">Cadenas de Markov</button>
           </div>
           <div style="font-family: monospace; font-size: 0.8rem; color: var(--text-gray-dark);">[resolución-paso-a-paso]</div>
         </div>
 
         <div class="dash-preview-window">
           
+          <!-- Tab 0: Método Gráfico Solver -->
+          <div class="dash-preview-pane active" id="pane-graphical">
+            <div class="solver-layout-container">
+              <!-- Controls and inputs -->
+              <div class="solver-input-section">
+                <div class="solver-card-header">
+                  <h3>Modelo de Programación Lineal (2D)</h3>
+                  <p>Define la función objetivo y las restricciones para resolver mediante el Método Gráfico.</p>
+                </div>
+                
+                <div class="form-row flex-row">
+                  <div class="form-group flex-1">
+                    <label>Tipo de Optimización</label>
+                    <select id="graphical-opt-type" class="solver-select">
+                      <option value="max" selected>Maximizar Z</option>
+                      <option value="min">Minimizar Z</option>
+                    </select>
+                  </div>
+                  <div class="form-group flex-1">
+                    <label>No. de Restricciones</label>
+                    <select id="graphical-const-count" class="solver-select">
+                      <option value="2" selected>2 Restricciones</option>
+                      <option value="3">3 Restricciones</option>
+                      <option value="4">4 Restricciones</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="divider"></div>
+
+                <!-- Objective Function Inputs -->
+                <div class="form-group">
+                  <label>Función Objetivo (Coeficientes)</label>
+                  <div class="coefficients-row" id="graphical-obj-row">
+                    <!-- Dynamic variable cells: Z = [ c1 ] x1 + [ c2 ] x2 -->
+                  </div>
+                </div>
+
+                <!-- Constraints Inputs -->
+                <div class="form-group">
+                  <label>Restricciones del Sistema</label>
+                  <div class="constraints-container" id="graphical-constraints-container">
+                    <!-- Dynamic constraint rows -->
+                  </div>
+                </div>
+
+                <div class="non-negativity-label">
+                  Condición de no negatividad: <code>x₁, x₂ &ge; 0</code>
+                </div>
+
+                <button id="btn-solve-graphical" class="btn btn-primary btn-solver-action">
+                  Resolver Método Gráfico →
+                </button>
+              </div>
+
+              <!-- Results Area -->
+              <div class="solver-output-section" id="graphical-output-area">
+                <div class="solver-empty-state">
+                  <div class="empty-state-icon">📈</div>
+                  <h4>Esperando Datos del Modelo</h4>
+                  <p>Rellena los coeficientes en el panel de la izquierda y haz clic en "Resolver" para generar la gráfica y la tabla de vértices factibles.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+          
           <!-- Tab 1: Simplex / Gran M Solver -->
-          <div class="dash-preview-pane active" id="pane-simplex">
+          <div class="dash-preview-pane" id="pane-simplex">
             <div class="solver-layout-container">
               <!-- Controls and inputs -->
               <div class="solver-input-section">
