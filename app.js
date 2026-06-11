@@ -13,6 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initBigMForm();
   initHungarianForm();
   initTransportForm();
+  initMarkovForm();
   
   // Bind Solver buttons
   document.getElementById('btn-solve-graphical').addEventListener('click', solveGraphicalModel);
@@ -49,6 +50,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       } else if (target === 'eoq') {
         solveEoqModel();
+      } else if (target === 'markov') {
+        solveMarkovModel();
       }
     }
   });
@@ -198,6 +201,8 @@ function initDashboardTabs() {
         setTimeout(solveBigMModel, 100);
       } else if (target === 'graphical') {
         setTimeout(solveGraphicalModel, 100);
+      } else if (target === 'markov') {
+        setTimeout(solveMarkovModel, 100);
       }
     });
   });
@@ -1643,101 +1648,354 @@ function drawEoqChart(optimalQ, D, S, H) {
 /* -------------------------------------------------------------
    6. MARKOV TRANSITION & STABLE STATES
    ------------------------------------------------------------- */
-function solveMarkovModel() {
-  const inputs = [
-    [document.getElementById('m00'), document.getElementById('m01'), document.getElementById('m02')],
-    [document.getElementById('m10'), document.getElementById('m11'), document.getElementById('m12')],
-    [document.getElementById('m20'), document.getElementById('m21'), document.getElementById('m22')]
-  ];
+function initMarkovForm() {
+  const sizeSelect = document.getElementById('markov-size');
+  if (!sizeSelect) return;
+
+  const rebuild = () => {
+    const N = parseInt(sizeSelect.value);
+    const container = document.getElementById('markov-matrix-container');
+    if (!container) return;
+
+    let tableHTML = `<table class="matrix-grid-table"><thead><tr><th></th>`;
+    for (let j = 1; j <= N; j++) tableHTML += `<th>S<sub>${j}</sub></th>`;
+    tableHTML += `</tr></thead><tbody>`;
+
+    const defaults = [
+      [0.7, 0.2, 0.1, 0.0],
+      [0.3, 0.5, 0.2, 0.0],
+      [0.2, 0.2, 0.6, 0.0],
+      [0.1, 0.1, 0.2, 0.6]
+    ];
+
+    for (let i = 1; i <= N; i++) {
+      tableHTML += `<tr><th>S<sub>${i}</sub></th>`;
+      for (let j = 1; j <= N; j++) {
+        let val = defaults[i - 1][j - 1];
+        if (N === 2) {
+          if (i === 1) val = (j === 1) ? 0.7 : 0.3;
+          if (i === 2) val = (j === 1) ? 0.4 : 0.6;
+        } else if (N === 4) {
+          if (i === 1) val = (j === 1) ? 0.6 : (j === 2 ? 0.2 : (j === 3 ? 0.1 : 0.1));
+          if (i === 2) val = (j === 1) ? 0.2 : (j === 2 ? 0.6 : (j === 3 ? 0.1 : 0.1));
+          if (i === 3) val = (j === 1) ? 0.1 : (j === 2 ? 0.1 : (j === 3 ? 0.6 : 0.2));
+          if (i === 4) val = (j === 1) ? 0.1 : (j === 2 ? 0.1 : (j === 3 ? 0.2 : 0.6));
+        }
+        tableHTML += `<td><input type="number" id="m-${i - 1}-${j - 1}" value="${val}" step="0.05" min="0" max="1" class="matrix-grid-input"></td>`;
+      }
+      tableHTML += `</tr>`;
+    }
+    tableHTML += `</tbody></table>`;
+    container.innerHTML = tableHTML;
+  };
+
+  sizeSelect.addEventListener('change', () => {
+    rebuild();
+    solveMarkovModel();
+  });
+  rebuild();
+}
+
+function solveLinearSystem(A, b) {
+  const n = A.length;
+  for (let i = 0; i < n; i++) {
+    A[i].push(b[i]);
+  }
   
-  if (!inputs[0][0]) return;
+  for (let i = 0; i < n; i++) {
+    let maxEl = Math.abs(A[i][i]);
+    let maxRow = i;
+    for (let k = i + 1; k < n; k++) {
+      if (Math.abs(A[k][i]) > maxEl) {
+        maxEl = Math.abs(A[k][i]);
+        maxRow = k;
+      }
+    }
+
+    const temp = A[maxRow];
+    A[maxRow] = A[i];
+    A[i] = temp;
+
+    for (let k = i + 1; k < n; k++) {
+      const c = -A[k][i] / A[i][i];
+      for (let j = i; j <= n; j++) {
+        if (i === j) {
+          A[k][j] = 0;
+        } else {
+          A[k][j] += c * A[i][j];
+        }
+      }
+    }
+  }
+
+  const x = Array(n).fill(0);
+  for (let i = n - 1; i >= 0; i--) {
+    x[i] = A[i][n] / A[i][i];
+    for (let k = i - 1; k >= 0; k--) {
+      A[k][n] -= A[k][i] * x[i];
+    }
+  }
+  return x;
+}
+
+function multiplyMatrices(A, B) {
+  const n = A.length;
+  const C = Array(n).fill(null).map(() => Array(n).fill(0));
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      let sum = 0;
+      for (let k = 0; k < n; k++) {
+        sum += A[i][k] * B[k][j];
+      }
+      C[i][j] = sum;
+    }
+  }
+  return C;
+}
+
+function renderMarkovMatrixHTML(mat) {
+  const N = mat.length;
+  let headers = "<th></th>";
+  for (let j = 1; j <= N; j++) headers += `<th>S<sub>${j}</sub></th>`;
+
+  let rows = "";
+  for (let i = 0; i < N; i++) {
+    let rowCells = `<th>S<sub>${i+1}</sub></th>`;
+    for (let j = 0; j < N; j++) {
+      rowCells += `<td style="font-family: monospace;">${mat[i][j].toFixed(4)}</td>`;
+    }
+    rows += `<tr>${rowCells}</tr>`;
+  }
+
+  return `<div class="simplex-table-wrapper" style="max-width:280px; margin-top: 0.4rem; background: rgba(5,5,5,0.45);">
+    <table class="simplex-table tp-table">
+      <thead><tr>${headers}</tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
+}
+
+function drawMarkovGraph(N, P) {
+  const svg = document.getElementById('markov-svg');
+  if (!svg) return;
+  svg.innerHTML = '';
+  
+  let nodes = [];
+  if (N === 2) {
+    nodes = [
+      { x: 120, y: 150, color: '#00f0ff', label: 'S₁' },
+      { x: 280, y: 150, color: '#bd00ff', label: 'S₂' }
+    ];
+  } else if (N === 3) {
+    nodes = [
+      { x: 100, y: 100, color: '#00f0ff', label: 'S₁' },
+      { x: 300, y: 100, color: '#bd00ff', label: 'S₂' },
+      { x: 200, y: 230, color: '#0055ff', label: 'S₃' }
+    ];
+  } else {
+    nodes = [
+      { x: 100, y: 90, color: '#00f0ff', label: 'S₁' },
+      { x: 300, y: 90, color: '#bd00ff', label: 'S₂' },
+      { x: 300, y: 210, color: '#0055ff', label: 'S₃' },
+      { x: 100, y: 210, color: '#ffbd2e', label: 'S₄' }
+    ];
+  }
+  
+  const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+  svg.appendChild(defs);
+  
+  for (let i = 0; i < N; i++) {
+    for (let j = 0; j < N; j++) {
+      const prob = P[i][j];
+      if (prob <= 0.01) continue;
+      
+      const nStart = nodes[i];
+      const nEnd = nodes[j];
+      let pathD = '';
+      let textX = 0;
+      let textY = 0;
+      
+      if (i === j) {
+        const dx = nStart.x - 200;
+        const dy = nStart.y - 150;
+        const len = Math.sqrt(dx * dx + dy * dy) || 1;
+        const ux = dx / len;
+        const uy = dy / len;
+        
+        const cp1_x = nStart.x + ux * 38 - uy * 18;
+        const cp1_y = nStart.y + uy * 38 + ux * 18;
+        const cp2_x = nStart.x + ux * 38 + uy * 18;
+        const cp2_y = nStart.y + uy * 38 - ux * 18;
+        
+        pathD = `M ${nStart.x} ${nStart.y} C ${cp1_x} ${cp1_y}, ${cp2_x} ${cp2_y}, ${nStart.x} ${nStart.y}`;
+        textX = nStart.x + ux * 48;
+        textY = nStart.y + uy * 48 + 3;
+      } else {
+        const mx = (nStart.x + nEnd.x) / 2;
+        const my = (nStart.y + nEnd.y) / 2;
+        const dx = nEnd.x - nStart.x;
+        const dy = nEnd.y - nStart.y;
+        const len = Math.sqrt(dx * dx + dy * dy);
+        const nx = -dy / len;
+        const ny = dx / len;
+        
+        const offset = 18;
+        const cx = mx + nx * offset;
+        const cy = my + ny * offset;
+        
+        pathD = `M ${nStart.x} ${nStart.y} Q ${cx} ${cy} ${nEnd.x} ${nEnd.y}`;
+        textX = cx + nx * 10;
+        textY = cy + ny * 10 + 3;
+      }
+      
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', pathD);
+      path.setAttribute('stroke', 'rgba(255, 255, 255, 0.1)');
+      path.setAttribute('stroke-width', '2');
+      path.setAttribute('fill', 'none');
+      path.setAttribute('id', `path-${i}-${j}`);
+      svg.appendChild(path);
+      
+      const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      text.setAttribute('x', textX);
+      text.setAttribute('y', textY);
+      text.setAttribute('text-anchor', 'middle');
+      text.setAttribute('fill', 'var(--text-gray-muted)');
+      text.setAttribute('style', 'font-size: 8px; font-family: monospace; font-weight: bold;');
+      text.textContent = prob.toFixed(2);
+      svg.appendChild(text);
+      
+      const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      dot.setAttribute('r', '4');
+      dot.setAttribute('fill', nEnd.color);
+      dot.setAttribute('class', 'markov-flow-dot');
+      dot.setAttribute('style', `filter: drop-shadow(0 0 4px ${nEnd.color});`);
+      
+      const anim = document.createElementNS('http://www.w3.org/2000/svg', 'animateMotion');
+      anim.setAttribute('dur', (3.5 / prob).toFixed(1) + 's');
+      anim.setAttribute('repeatCount', 'indefinite');
+      anim.setAttribute('path', pathD);
+      dot.appendChild(anim);
+      
+      svg.appendChild(dot);
+    }
+  }
+  
+  nodes.forEach(node => {
+    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    circle.setAttribute('cx', node.x);
+    circle.setAttribute('cy', node.y);
+    circle.setAttribute('r', '22');
+    circle.setAttribute('fill', '#08080c');
+    circle.setAttribute('stroke', node.color);
+    circle.setAttribute('stroke-width', '3');
+    svg.appendChild(circle);
+    
+    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text.setAttribute('x', node.x);
+    text.setAttribute('y', node.y + 4);
+    text.setAttribute('text-anchor', 'middle');
+    text.setAttribute('class', 'markov-node-label');
+    text.setAttribute('fill', '#ffffff');
+    text.setAttribute('style', 'font-size: 11px; font-weight: bold;');
+    text.textContent = node.label;
+    svg.appendChild(text);
+  });
+}
+
+function solveMarkovModel() {
+  const sizeSelect = document.getElementById('markov-size');
+  const stepsSelect = document.getElementById('markov-steps');
+  if (!sizeSelect || !stepsSelect) return;
+
+  const N = parseInt(sizeSelect.value);
+  const k = parseInt(stepsSelect.value);
 
   const P = [];
-  for (let i = 0; i < 3; i++) {
+  const inputs = [];
+  
+  for (let i = 0; i < N; i++) {
     const row = [];
+    const rowInputs = [];
     let sum = 0;
-    for (let j = 0; j < 3; j++) {
-      let val = parseFloat(inputs[i][j].value) || 0;
+    for (let j = 0; j < N; j++) {
+      const inp = document.getElementById(`m-${i}-${j}`);
+      rowInputs.push(inp);
+      let val = inp ? (parseFloat(inp.value) || 0) : 0;
       row.push(val);
       sum += val;
     }
     P.push(row);
     
-    // Highlight rows that do not sum to 1.0
     if (Math.abs(sum - 1.0) > 0.02) {
-      inputs[i].forEach(inp => {
-        inp.style.borderColor = 'rgba(255, 95, 86, 0.5)';
-        inp.style.boxShadow = '0 0 8px rgba(255, 95, 86, 0.1)';
+      rowInputs.forEach(inp => {
+        if (inp) {
+          inp.style.borderColor = 'rgba(255, 95, 86, 0.5)';
+          inp.style.boxShadow = '0 0 8px rgba(255, 95, 86, 0.1)';
+        }
       });
     } else {
-      inputs[i].forEach(inp => {
-        inp.style.borderColor = '';
-        inp.style.boxShadow = '';
+      rowInputs.forEach(inp => {
+        if (inp) {
+          inp.style.borderColor = '';
+          inp.style.boxShadow = '';
+        }
       });
     }
   }
 
-  // Solve system of equations for steady states:
-  // pi_0 = pi_0*P00 + pi_1*P10 + pi_2*P20  => pi_0(P00 - 1) + pi_1*P10 + pi_2*P20 = 0
-  // pi_1 = pi_0*P01 + pi_1*P11 + pi_2*P21  => pi_0*P01 + pi_1(P11 - 1) + pi_2*P21 = 0
-  // pi_0 + pi_1 + pi_2 = 1.0
-  //
-  // Let variables be x, y, z representing pi_0, pi_1, pi_2
-  // Equation 1: a1*x + b1*y + c1*z = d1  => (P00-1)*x + P10*y + P20*z = 0
-  // Equation 2: a2*x + b2*y + c2*z = d2  => P01*x + (P11-1)*y + P21*z = 0
-  // Equation 3: a3*x + b3*y + c3*z = d3  => 1*x + 1*y + 1*z = 1
-  
-  const a1 = P[0][0] - 1, b1 = P[1][0], c1 = P[2][0], d1 = 0;
-  const a2 = P[0][1], b2 = P[1][1] - 1, c2 = P[2][1], d2 = 0;
-  const a3 = 1, b3 = 1, c3 = 1, d3 = 1;
+  const M_eq = [];
+  const B_eq = [];
+  for (let j = 0; j < N - 1; j++) {
+    const row = [];
+    for (let i = 0; i < N; i++) {
+      row.push(P[i][j] - (i === j ? 1 : 0));
+    }
+    M_eq.push(row);
+    B_eq.push(0);
+  }
+  const normRow = Array(N).fill(1);
+  M_eq.push(normRow);
+  B_eq.push(1);
 
-  // Cramer's rule determinants
-  const Det = a1*(b2*c3 - b3*c2) - b1*(a2*c3 - a3*c2) + c1*(a2*b3 - a3*b2);
-  let pi0 = 0, pi1 = 0, pi2 = 0;
-
-  if (Math.abs(Det) > 1e-9) {
-    const DetX = d1*(b2*c3 - b3*c2) - b1*(d2*c3 - d3*c2) + c1*(d2*b3 - d3*b2);
-    const DetY = a1*(d2*c3 - d3*c2) - d1*(a2*c3 - a3*c2) + c1*(a2*d3 - a3*d2);
-    const DetZ = a1*(b2*d3 - b3*d2) - b1*(a2*d3 - a3*d2) + d1*(a2*b3 - a3*b2);
-    
-    pi0 = DetX / Det;
-    pi1 = DetY / Det;
-    pi2 = DetZ / Det;
+  let steadyState = null;
+  try {
+    steadyState = solveLinearSystem(M_eq, B_eq);
+  } catch (err) {
+    steadyState = null;
   }
 
-  // Update steady state text outputs
   const output = document.getElementById('markov-steady-output');
-  output.innerHTML = `
-    &pi;₁ = <strong>${(pi0 * 100).toFixed(1)}%</strong> &nbsp;&nbsp;
-    &pi;₂ = <strong>${(pi1 * 100).toFixed(1)}%</strong> &nbsp;&nbsp;
-    &pi;₃ = <strong>${(pi2 * 100).toFixed(1)}%</strong>
-  `;
-
-  // Scale flow dynamic SVG dots speed
-  const p1_val = P[0][1]; // S1 -> S2 (p-dot-1)
-  const p2_val = P[1][0]; // S2 -> S1 (p-dot-2)
-  const p3_val = P[2][1]; // S3 -> S2 (p-dot-3)
-  const p4_val = P[0][2]; // S1 -> S3 (p-dot-4)
-  
-  const animateDot = (dotId, prob) => {
-    const dot = document.getElementById(dotId);
-    if (!dot) return;
-    if (prob <= 0.01) {
-      dot.style.display = 'none';
+  if (output) {
+    if (steadyState && steadyState.every(v => !isNaN(v) && isFinite(v))) {
+      const piElements = steadyState.map((val, idx) => `&pi;<sub>${idx + 1}</sub> = <strong>${(val * 100).toFixed(1)}%</strong>`).join(' &nbsp;&nbsp; ');
+      output.innerHTML = piElements;
     } else {
-      dot.style.display = 'block';
-      const anim = dot.querySelector('animateMotion');
-      if (anim) {
-        // High probability = faster flow (shorter duration)
-        anim.setAttribute('dur', (3.5 / prob).toFixed(1) + 's');
-      }
+      output.innerHTML = `<span style="color: #ffbd2e;">El sistema no posee un único estado estable.</span>`;
     }
-  };
-  
-  animateDot('p-dot-1', p1_val);
-  animateDot('p-dot-2', p2_val);
-  animateDot('p-dot-3', p3_val);
-  animateDot('p-dot-4', p4_val);
+  }
+
+  const stepsContainer = document.getElementById('markov-steps-container');
+  if (stepsContainer) {
+    let currentP = P.map(row => [...row]);
+    let stepsHTML = `<strong style="font-size: 0.8rem; text-transform: uppercase; color: var(--primary-cyan); letter-spacing: 0.05em; display:block; margin-bottom: 0.4rem;">Pasos de Transición:</strong>`;
+    
+    for (let step = 1; step <= k; step++) {
+      stepsHTML += `
+        <div style="margin-bottom: 1.2rem; background: rgba(255,255,255,0.01); border: 1px solid rgba(255,255,255,0.03); padding: 0.8rem; border-radius: 8px;">
+          <div style="font-size: 0.78rem; font-weight: bold; color: var(--text-gray-light); display: flex; justify-content: space-between;">
+            <span>Matriz de Pasos P<sup>${step}</sup></span>
+            <span style="font-family: monospace; font-size: 0.7rem; color: var(--text-gray-dark);">[t=${step}]</span>
+          </div>
+          ${renderMarkovMatrixHTML(currentP)}
+        </div>
+      `;
+      currentP = multiplyMatrices(currentP, P);
+    }
+    stepsContainer.innerHTML = stepsHTML;
+  }
+
+  drawMarkovGraph(N, P);
 }
 
 /* -------------------------------------------------------------

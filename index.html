@@ -544,35 +544,50 @@
           <div class="dash-preview-pane" id="pane-markov">
             <div class="markov-grid-container solver-layout-container" style="display: grid; grid-template-columns: 380px 1fr; gap: 1.5rem; text-align: left;">
               <div class="markov-inputs">
+                <div class="form-row flex-row" style="margin-bottom: 0.8rem;">
+                  <div class="form-group flex-1">
+                    <label>No. de Estados (NxN)</label>
+                    <select id="markov-size" class="solver-select">
+                      <option value="2">2 Estados (2×2)</option>
+                      <option value="3" selected>3 Estados (3×3)</option>
+                      <option value="4">4 Estados (4×4)</option>
+                    </select>
+                  </div>
+                  <div class="form-group flex-1">
+                    <label>Pasos a Calcular (Pᵗ)</label>
+                    <select id="markov-steps" class="solver-select">
+                      <option value="1">1 Paso (P¹)</option>
+                      <option value="2">2 Pasos (P²)</option>
+                      <option value="3" selected>3 Pasos (P³)</option>
+                      <option value="4">4 Pasos (P⁴)</option>
+                      <option value="5">5 Pasos (P⁵)</option>
+                    </select>
+                  </div>
+                </div>
+
                 <div class="markov-matrix-box" style="margin-bottom: 1rem;">
-                  <div class="simplex-log-title" style="margin-bottom: 0.5rem;">Matriz de Transición P (3×3)</div>
+                  <div class="simplex-log-title" id="markov-matrix-title" style="margin-bottom: 0.5rem;">Matriz de Transición P</div>
                   <div style="font-size: 0.75rem; color: var(--text-gray-dark); margin-bottom: 1rem;">
                     Ingresa probabilidades de transición de un estado a otro (las filas deben sumar 1.0):
                   </div>
-                  <div class="markov-matrix-grid">
-                    <input type="number" id="m00" value="0.7" step="0.05" min="0" max="1" class="solver-input">
-                    <input type="number" id="m01" value="0.2" step="0.05" min="0" max="1" class="solver-input">
-                    <input type="number" id="m02" value="0.1" step="0.05" min="0" max="1" class="solver-input">
-                    
-                    <input type="number" id="m10" value="0.3" step="0.05" min="0" max="1" class="solver-input">
-                    <input type="number" id="m11" value="0.5" step="0.05" min="0" max="1" class="solver-input">
-                    <input type="number" id="m12" value="0.2" step="0.05" min="0" max="1" class="solver-input">
-                    
-                    <input type="number" id="m20" value="0.2" step="0.05" min="0" max="1" class="solver-input">
-                    <input type="number" id="m21" value="0.2" step="0.05" min="0" max="1" class="solver-input">
-                    <input type="number" id="m22" value="0.6" step="0.05" min="0" max="1" class="solver-input">
+                  <div class="matrix-input-wrapper" id="markov-matrix-container">
+                    <!-- Dynamic transition matrix inputs -->
                   </div>
                 </div>
                 
                 <button id="btn-solve-markov" class="btn btn-primary btn-solver-action" style="width: 100%; margin-bottom: 1rem;">
-                  Calcular Estado Estable →
+                  Calcular Modelo de Markov →
                 </button>
 
                 <div class="simplex-interpretation" style="margin-top: 0.5rem; background: rgba(0,240,255,0.02); border-color: var(--primary-cyan);">
                   <strong>💡 Estado Estable de Markov:</strong><br>
                   Los estados de probabilidad a largo plazo convergen en:<br>
-                  <div id="markov-steady-output" style="margin-top: 0.5rem; font-family: monospace; font-size: 0.85rem; color: var(--text-white);">
+                  <div id="markov-steady-output" style="margin-top: 0.5rem; font-family: monospace; font-size: 0.85rem; color: var(--text-white); margin-bottom: 0.5rem;">
                     π₁ = 49.3%, π₂ = 28.2%, π₃ = 22.5%
+                  </div>
+                  
+                  <div id="markov-steps-container" style="margin-top: 1rem; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 0.8rem;">
+                    <!-- Transition steps P^t generated here -->
                   </div>
                 </div>
               </div>
@@ -580,36 +595,7 @@
               <div class="markov-viz" style="display: flex; flex-direction: column; justify-content: center; align-items: center; border: 1px solid var(--border-light); border-radius: 10px; background: rgba(0,0,0,0.2); position: relative; min-height: 300px;">
                 <div style="position: absolute; top: 10px; left: 10px; font-size: 0.75rem; color: var(--text-gray-muted);">Grafo de Transición Dinámico</div>
                 <svg viewBox="0 0 400 300" width="100%" height="100%" id="markov-svg">
-                  <!-- Connection Curves -->
-                  <path d="M 100 100 Q 200 60 300 100" stroke="rgba(255,255,255,0.08)" stroke-width="2" fill="none" id="path-0-1"/>
-                  <path d="M 300 100 Q 200 140 100 100" stroke="rgba(255,255,255,0.08)" stroke-width="2" fill="none" id="path-1-0"/>
-                  
-                  <path d="M 300 100 Q 330 200 200 240" stroke="rgba(255,255,255,0.08)" stroke-width="2" fill="none" id="path-1-2"/>
-                  <path d="M 200 240 Q 130 180 300 100" stroke="rgba(255,255,255,0.08)" stroke-width="2" fill="none" id="path-2-1"/>
-                  
-                  <path d="M 200 240 Q 100 200 100 100" stroke="rgba(255,255,255,0.08)" stroke-width="2" fill="none" id="path-2-0"/>
-                  <path d="M 100 100 Q 80 180 200 240" stroke="rgba(255,255,255,0.08)" stroke-width="2" fill="none" id="path-0-2"/>
-
-                  <!-- Self Loops -->
-                  <path d="M 100 100 C 50 50, 50 150, 100 100" stroke="rgba(255,255,255,0.08)" stroke-width="2" fill="none" id="path-0-0"/>
-                  <path d="M 300 100 C 350 50, 350 150, 300 100" stroke="rgba(255,255,255,0.08)" stroke-width="2" fill="none" id="path-1-1"/>
-                  <path d="M 200 240 C 250 300, 150 300, 200 240" stroke="rgba(255,255,255,0.08)" stroke-width="2" fill="none" id="path-2-2"/>
-
-                  <!-- Nodes -->
-                  <circle cx="100" cy="100" r="28" fill="#08080c" stroke="#00f0ff" stroke-width="3" id="node-0" />
-                  <circle cx="300" cy="100" r="28" fill="#08080c" stroke="#bd00ff" stroke-width="3" id="node-1" />
-                  <circle cx="200" cy="240" r="28" fill="#08080c" stroke="#0055ff" stroke-width="3" id="node-2" />
-
-                  <!-- Text Labels inside nodes -->
-                  <text x="100" y="105" text-anchor="middle" class="markov-node-label">S₁</text>
-                  <text x="300" y="105" text-anchor="middle" class="markov-node-label">S₂</text>
-                  <text x="200" y="245" text-anchor="middle" class="markov-node-label">S₃</text>
-
-                  <!-- Animated Flow Particles -->
-                  <circle r="4" class="markov-flow-dot" id="p-dot-1"><animateMotion dur="4s" repeatCount="indefinite" path="M 100 100 Q 200 60 300 100" /></circle>
-                  <circle r="4" class="markov-flow-dot" id="p-dot-2"><animateMotion dur="5s" repeatCount="indefinite" path="M 300 100 Q 200 140 100 100" /></circle>
-                  <circle r="4" class="markov-flow-dot" id="p-dot-3"><animateMotion dur="3s" repeatCount="indefinite" path="M 200 240 Q 130 180 300 100" /></circle>
-                  <circle r="4" class="markov-flow-dot" id="p-dot-4"><animateMotion dur="6s" repeatCount="indefinite" path="M 100 100 Q 80 180 200 240" /></circle>
+                  <!-- Generated dynamically in app.js -->
                 </svg>
               </div>
             </div>
