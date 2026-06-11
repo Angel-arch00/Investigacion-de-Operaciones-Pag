@@ -509,10 +509,14 @@ function runSimplexSolver(prefix) {
   }
 
   // Standard form HTML
+  let variablesIntroText = prefix === 'simplex' 
+    ? "Se introducen variables de holgura ($s_i$)." 
+    : "Se introducen variables de holgura ($s_i$), exceso ($e_i$) y artificiales ($a_i$).";
+
   let stdHTML = `<div class="iteration-tableau-card" style="border-color: var(--border-active);">
     <h4 style="color: var(--primary-cyan); font-size: 0.95rem; margin-bottom: 0.5rem;">Forma Estándar (PL)</h4>
     <p style="font-size:0.8rem; color: var(--text-gray-muted); margin-bottom:0.8rem;">
-      Se introducen variables de holgura ($s_i$), exceso ($e_i$) y artificiales ($a_i$).
+      ${variablesIntroText}
     </p>
     <div style="font-family: monospace; font-size: 0.85rem; line-height: 1.5; padding: 0.8rem; background: rgba(0,0,0,0.3); border-radius: 6px;">
       <strong>Objetivo:</strong> ${optType === 'max' ? 'Max' : 'Min'} Z = `;
@@ -615,7 +619,7 @@ function runSimplexSolver(prefix) {
       if (i !== leavingRow) {
         const factor = tableau[i][enteringCol];
         for (let j = 0; j <= rhsCol; j++) {
-          tableau[i][j] = tableau[i][j].sub(factor.mul(tableau[leavingRow][j]));
+          tableau[i][j] = tableau[i][j].sub(factor.mul(tableau[leavingRow][j].r));
         }
       }
     }
