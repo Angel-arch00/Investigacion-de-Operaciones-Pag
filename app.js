@@ -277,11 +277,8 @@ function initSimplexForm() {
       row.innerHTML = `
         <span class="var-term" style="margin-right:0.5rem; color: var(--text-gray-dark);">[${i}]</span>
         ${varsHTML}
-        <select id="simplex-sign-${i}" class="solver-select constraint-sign">
-          <option value="<=" selected>&le;</option>
-          <option value=">=">&ge;</option>
-          <option value="=">=</option>
-        </select>
+        <span class="var-term" style="color: var(--primary-cyan); font-weight: bold; margin: 0 0.5rem;">&le;</span>
+        <input type="hidden" id="simplex-sign-${i}" value="<=">
         <input type="number" id="simplex-rhs-${i}" value="${defaultRHS}" class="solver-input" style="width: 60px; text-align:center; padding:0;">
       `;
       constContainer.appendChild(row);
