@@ -1655,38 +1655,56 @@ function initMarkovForm() {
   const rebuild = () => {
     const N = parseInt(sizeSelect.value);
     const container = document.getElementById('markov-matrix-container');
-    if (!container) return;
+    if (container) {
+      let tableHTML = `<table class="matrix-grid-table"><thead><tr><th></th>`;
+      for (let j = 1; j <= N; j++) tableHTML += `<th>E${j}</th>`;
+      tableHTML += `</tr></thead><tbody>`;
 
-    let tableHTML = `<table class="matrix-grid-table"><thead><tr><th></th>`;
-    for (let j = 1; j <= N; j++) tableHTML += `<th>S<sub>${j}</sub></th>`;
-    tableHTML += `</tr></thead><tbody>`;
+      const defaults = [
+        [0.7, 0.2, 0.1, 0.0],
+        [0.3, 0.5, 0.2, 0.0],
+        [0.2, 0.3, 0.5, 0.0],
+        [0.1, 0.1, 0.2, 0.6]
+      ];
 
-    const defaults = [
-      [0.7, 0.2, 0.1, 0.0],
-      [0.3, 0.5, 0.2, 0.0],
-      [0.2, 0.2, 0.6, 0.0],
-      [0.1, 0.1, 0.2, 0.6]
-    ];
-
-    for (let i = 1; i <= N; i++) {
-      tableHTML += `<tr><th>S<sub>${i}</sub></th>`;
-      for (let j = 1; j <= N; j++) {
-        let val = defaults[i - 1][j - 1];
-        if (N === 2) {
-          if (i === 1) val = (j === 1) ? 0.7 : 0.3;
-          if (i === 2) val = (j === 1) ? 0.4 : 0.6;
-        } else if (N === 4) {
-          if (i === 1) val = (j === 1) ? 0.6 : (j === 2 ? 0.2 : (j === 3 ? 0.1 : 0.1));
-          if (i === 2) val = (j === 1) ? 0.2 : (j === 2 ? 0.6 : (j === 3 ? 0.1 : 0.1));
-          if (i === 3) val = (j === 1) ? 0.1 : (j === 2 ? 0.1 : (j === 3 ? 0.6 : 0.2));
-          if (i === 4) val = (j === 1) ? 0.1 : (j === 2 ? 0.1 : (j === 3 ? 0.2 : 0.6));
+      for (let i = 1; i <= N; i++) {
+        tableHTML += `<tr><th>E${i}</th>`;
+        for (let j = 1; j <= N; j++) {
+          let val = defaults[i - 1][j - 1];
+          if (N === 2) {
+            if (i === 1) val = (j === 1) ? 0.7 : 0.3;
+            if (i === 2) val = (j === 1) ? 0.4 : 0.6;
+          } else if (N === 4) {
+            if (i === 1) val = (j === 1) ? 0.6 : (j === 2 ? 0.2 : (j === 3 ? 0.1 : 0.1));
+            if (i === 2) val = (j === 1) ? 0.2 : (j === 2 ? 0.6 : (j === 3 ? 0.1 : 0.1));
+            if (i === 3) val = (j === 1) ? 0.1 : (j === 2 ? 0.1 : (j === 3 ? 0.6 : 0.2));
+            if (i === 4) val = (j === 1) ? 0.1 : (j === 2 ? 0.1 : (j === 3 ? 0.2 : 0.6));
+          }
+          tableHTML += `<td><input type="number" id="m-${i - 1}-${j - 1}" value="${val}" step="0.05" min="0" max="1" class="matrix-grid-input"></td>`;
         }
-        tableHTML += `<td><input type="number" id="m-${i - 1}-${j - 1}" value="${val}" step="0.05" min="0" max="1" class="matrix-grid-input"></td>`;
+        tableHTML += `</tr>`;
       }
-      tableHTML += `</tr>`;
+      tableHTML += `</tbody></table>`;
+      container.innerHTML = tableHTML;
     }
-    tableHTML += `</tbody></table>`;
-    container.innerHTML = tableHTML;
+
+    const initialContainer = document.getElementById('markov-initial-container');
+    if (initialContainer) {
+      initialContainer.innerHTML = '';
+      for (let i = 1; i <= N; i++) {
+        const val = (i === 1) ? 1.0 : 0.0;
+        const formGroup = document.createElement('div');
+        formGroup.className = 'form-group';
+        formGroup.style.margin = '0';
+        formGroup.style.flex = '1';
+        formGroup.style.minWidth = '70px';
+        formGroup.innerHTML = `
+          <label style="font-size:0.7rem; text-transform:none;">&pi;₀(E${i})</label>
+          <input type="number" id="pi0-${i - 1}" value="${val}" step="0.1" min="0" max="1" class="solver-input" style="height:34px; padding:0 0.5rem; text-align:center;">
+        `;
+        initialContainer.appendChild(formGroup);
+      }
+    }
   };
 
   sizeSelect.addEventListener('change', () => {
@@ -1738,6 +1756,19 @@ function solveLinearSystem(A, b) {
   return x;
 }
 
+function multiplyVectorMatrix(v, M) {
+  const n = v.length;
+  const res = Array(n).fill(0);
+  for (let j = 0; j < n; j++) {
+    let sum = 0;
+    for (let i = 0; i < n; i++) {
+      sum += v[i] * M[i][j];
+    }
+    res[j] = sum;
+  }
+  return res;
+}
+
 function multiplyMatrices(A, B) {
   const n = A.length;
   const C = Array(n).fill(null).map(() => Array(n).fill(0));
@@ -1753,28 +1784,6 @@ function multiplyMatrices(A, B) {
   return C;
 }
 
-function renderMarkovMatrixHTML(mat) {
-  const N = mat.length;
-  let headers = "<th></th>";
-  for (let j = 1; j <= N; j++) headers += `<th>S<sub>${j}</sub></th>`;
-
-  let rows = "";
-  for (let i = 0; i < N; i++) {
-    let rowCells = `<th>S<sub>${i+1}</sub></th>`;
-    for (let j = 0; j < N; j++) {
-      rowCells += `<td style="font-family: monospace;">${mat[i][j].toFixed(4)}</td>`;
-    }
-    rows += `<tr>${rowCells}</tr>`;
-  }
-
-  return `<div class="simplex-table-wrapper" style="max-width:280px; margin-top: 0.4rem; background: rgba(5,5,5,0.45);">
-    <table class="simplex-table tp-table">
-      <thead><tr>${headers}</tr></thead>
-      <tbody>${rows}</tbody>
-    </table>
-  </div>`;
-}
-
 function drawMarkovGraph(N, P) {
   const svg = document.getElementById('markov-svg');
   if (!svg) return;
@@ -1783,21 +1792,21 @@ function drawMarkovGraph(N, P) {
   let nodes = [];
   if (N === 2) {
     nodes = [
-      { x: 120, y: 150, color: '#00f0ff', label: 'S₁' },
-      { x: 280, y: 150, color: '#bd00ff', label: 'S₂' }
+      { x: 120, y: 150, color: '#00f0ff', label: 'E₁' },
+      { x: 280, y: 150, color: '#bd00ff', label: 'E₂' }
     ];
   } else if (N === 3) {
     nodes = [
-      { x: 100, y: 100, color: '#00f0ff', label: 'S₁' },
-      { x: 300, y: 100, color: '#bd00ff', label: 'S₂' },
-      { x: 200, y: 230, color: '#0055ff', label: 'S₃' }
+      { x: 100, y: 100, color: '#00f0ff', label: 'E₁' },
+      { x: 300, y: 100, color: '#bd00ff', label: 'E₂' },
+      { x: 200, y: 230, color: '#0055ff', label: 'E₃' }
     ];
   } else {
     nodes = [
-      { x: 100, y: 90, color: '#00f0ff', label: 'S₁' },
-      { x: 300, y: 90, color: '#bd00ff', label: 'S₂' },
-      { x: 300, y: 210, color: '#0055ff', label: 'S₃' },
-      { x: 100, y: 210, color: '#ffbd2e', label: 'S₄' }
+      { x: 100, y: 90, color: '#00f0ff', label: 'E₁' },
+      { x: 300, y: 90, color: '#bd00ff', label: 'E₂' },
+      { x: 300, y: 210, color: '#0055ff', label: 'E₃' },
+      { x: 100, y: 210, color: '#ffbd2e', label: 'E₄' }
     ];
   }
   
@@ -1905,15 +1914,15 @@ function drawMarkovGraph(N, P) {
 
 function solveMarkovModel() {
   const sizeSelect = document.getElementById('markov-size');
-  const stepsSelect = document.getElementById('markov-steps');
-  if (!sizeSelect || !stepsSelect) return;
+  const stepsInput = document.getElementById('markov-steps');
+  if (!sizeSelect || !stepsInput) return;
 
   const N = parseInt(sizeSelect.value);
-  const k = parseInt(stepsSelect.value);
+  const k = Math.min(50, Math.max(1, parseInt(stepsInput.value) || 10));
 
+  // 1. Read transition matrix P
   const P = [];
-  const inputs = [];
-  
+  const pInputs = [];
   for (let i = 0; i < N; i++) {
     const row = [];
     const rowInputs = [];
@@ -1944,6 +1953,35 @@ function solveMarkovModel() {
     }
   }
 
+  // 2. Read initial state vector pi0
+  const pi0 = [];
+  const pi0Inputs = [];
+  let pi0Sum = 0;
+  for (let i = 0; i < N; i++) {
+    const inp = document.getElementById(`pi0-${i}`);
+    pi0Inputs.push(inp);
+    let val = inp ? (parseFloat(inp.value) || 0) : 0;
+    pi0.push(val);
+    pi0Sum += val;
+  }
+
+  if (Math.abs(pi0Sum - 1.0) > 0.02) {
+    pi0Inputs.forEach(inp => {
+      if (inp) {
+        inp.style.borderColor = 'rgba(255, 95, 86, 0.5)';
+        inp.style.boxShadow = '0 0 8px rgba(255, 95, 86, 0.1)';
+      }
+    });
+  } else {
+    pi0Inputs.forEach(inp => {
+      if (inp) {
+        inp.style.borderColor = '';
+        inp.style.boxShadow = '';
+      }
+    });
+  }
+
+  // 3. Compute steady state probabilities exactly
   const M_eq = [];
   const B_eq = [];
   for (let j = 0; j < N - 1; j++) {
@@ -1965,34 +2003,66 @@ function solveMarkovModel() {
     steadyState = null;
   }
 
+  // Render stable state cards
   const output = document.getElementById('markov-steady-output');
   if (output) {
     if (steadyState && steadyState.every(v => !isNaN(v) && isFinite(v))) {
-      const piElements = steadyState.map((val, idx) => `&pi;<sub>${idx + 1}</sub> = <strong>${(val * 100).toFixed(1)}%</strong>`).join(' &nbsp;&nbsp; ');
-      output.innerHTML = piElements;
+      let cardsHTML = `<div style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.5rem;">`;
+      const colors = ['#00f0ff', '#bd00ff', '#0055ff', '#ffbd2e'];
+      
+      steadyState.forEach((val, idx) => {
+        cardsHTML += `
+          <div style="flex: 1; min-width: 80px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 8px; padding: 0.5rem; text-align: center;">
+            <div style="color: ${colors[idx % colors.length]}; font-size: 1.1rem; font-weight: bold; font-family: monospace;">${(val * 100).toFixed(1)}%</div>
+            <div style="color: var(--text-gray-muted); font-size: 0.7rem;">E${idx + 1} (estable)</div>
+          </div>
+        `;
+      });
+      cardsHTML += `</div>`;
+      
+      let stateLabels = steadyState.map((val, idx) => `E${idx+1}=${(val*100).toFixed(1)}%`).join(', ');
+      cardsHTML += `
+        <div style="font-size: 0.75rem; color: var(--text-gray-light); line-height: 1.4; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 0.6rem; margin-top: 0.8rem;">
+          <strong>💡 Estado estable alcanzado:</strong> ${stateLabels}. A largo plazo, independientemente del estado inicial, el sistema converge a estas probabilidades.
+        </div>
+      `;
+      output.innerHTML = cardsHTML;
     } else {
       output.innerHTML = `<span style="color: #ffbd2e;">El sistema no posee un único estado estable.</span>`;
     }
   }
 
-  const stepsContainer = document.getElementById('markov-steps-container');
-  if (stepsContainer) {
-    let currentP = P.map(row => [...row]);
-    let stepsHTML = `<strong style="font-size: 0.8rem; text-transform: uppercase; color: var(--primary-cyan); letter-spacing: 0.05em; display:block; margin-bottom: 0.4rem;">Pasos de Transición:</strong>`;
-    
-    for (let step = 1; step <= k; step++) {
-      stepsHTML += `
-        <div style="margin-bottom: 1.2rem; background: rgba(255,255,255,0.01); border: 1px solid rgba(255,255,255,0.03); padding: 0.8rem; border-radius: 8px;">
-          <div style="font-size: 0.78rem; font-weight: bold; color: var(--text-gray-light); display: flex; justify-content: space-between;">
-            <span>Matriz de Pasos P<sup>${step}</sup></span>
-            <span style="font-family: monospace; font-size: 0.7rem; color: var(--text-gray-dark);">[t=${step}]</span>
-          </div>
-          ${renderMarkovMatrixHTML(currentP)}
-        </div>
-      `;
-      currentP = multiplyMatrices(currentP, P);
-    }
-    stepsContainer.innerHTML = stepsHTML;
+  // 4. Compute evolution history
+  const history = [];
+  history.push([...pi0]);
+  let currentV = [...pi0];
+  for (let t = 1; t <= k; t++) {
+    currentV = multiplyVectorMatrix(currentV, P);
+    history.push([...currentV]);
+  }
+
+  // Render evolution table
+  const evolutionContainer = document.getElementById('markov-evolution-container');
+  if (evolutionContainer) {
+    let tableHTML = `
+      <div class="simplex-table-wrapper" style="max-height: 380px; overflow-y: auto; background: rgba(5,5,5,0.45);">
+        <table class="simplex-table tp-table" style="font-size: 0.8rem;">
+          <thead>
+            <tr>
+              <th>Paso</th>
+    `;
+    for (let j = 1; j <= N; j++) tableHTML += `<th>E${j}</th>`;
+    tableHTML += `</tr></thead><tbody>`;
+
+    history.forEach((vec, step) => {
+      let cells = `<td><strong>${step}</strong></td>`;
+      for (let j = 0; j < N; j++) {
+        cells += `<td style="font-family: monospace;">${(vec[j] * 100).toFixed(2)}%</td>`;
+      }
+      tableHTML += `<tr>${cells}</tr>`;
+    });
+    tableHTML += `</tbody></table></div>`;
+    evolutionContainer.innerHTML = tableHTML;
   }
 
   drawMarkovGraph(N, P);
