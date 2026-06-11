@@ -9,12 +9,14 @@ document.addEventListener('DOMContentLoaded', () => {
   // Initialize dynamic forms
   initGraphicalForm();
   initSimplexForm();
+  initBigMForm();
   initHungarianForm();
   initTransportForm();
   
   // Bind Solver buttons
   document.getElementById('btn-solve-graphical').addEventListener('click', solveGraphicalModel);
   document.getElementById('btn-solve-simplex').addEventListener('click', solveSimplexModel);
+  document.getElementById('btn-solve-bigm').addEventListener('click', solveBigMModel);
   document.getElementById('btn-solve-hungarian').addEventListener('click', solveHungarianModel);
   document.getElementById('btn-solve-transport').addEventListener('click', solveTransportModel);
   document.getElementById('btn-calculate-eoq').addEventListener('click', solveEoqModel);
@@ -25,6 +27,7 @@ document.addEventListener('DOMContentLoaded', () => {
   solveEoqModel();
   solveMarkovModel();
   solveSimplexModel();
+  solveBigMModel();
 
   // Redraw charts on window resize to ensure responsiveness
   window.addEventListener('resize', () => {
@@ -37,6 +40,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const selectVars = document.getElementById('simplex-vars-count');
         if (selectVars && parseInt(selectVars.value) === 2) {
           solveSimplexModel();
+        }
+      } else if (target === 'bigm') {
+        const selectVars = document.getElementById('bigm-vars-count');
+        if (selectVars && parseInt(selectVars.value) === 2) {
+          solveBigMModel();
         }
       } else if (target === 'eoq') {
         solveEoqModel();
@@ -185,6 +193,8 @@ function initDashboardTabs() {
         setTimeout(solveEoqModel, 100);
       } else if (target === 'simplex') {
         setTimeout(solveSimplexModel, 100);
+      } else if (target === 'bigm') {
+        setTimeout(solveBigMModel, 100);
       } else if (target === 'graphical') {
         setTimeout(solveGraphicalModel, 100);
       }
@@ -224,7 +234,7 @@ function initSimplexForm() {
       objRow.appendChild(cell);
     }
 
-    // Generate Constraints
+    // Generate Constraints (fixed to <= for Standard Simplex)
     const constContainer = document.getElementById('simplex-constraints-container');
     constContainer.innerHTML = '';
 
@@ -261,11 +271,8 @@ function initSimplexForm() {
       row.innerHTML = `
         <span class="var-term" style="margin-right:0.5rem; color: var(--text-gray-dark);">[${i}]</span>
         ${varsHTML}
-        <select id="simplex-sign-${i}" class="solver-select constraint-sign">
-          <option value="<=" selected>&le;</option>
-          <option value=">=">&ge;</option>
-          <option value="=">=</option>
-        </select>
+        <span class="var-term" style="color: var(--primary-cyan); font-weight: bold; margin: 0 0.5rem;">&le;</span>
+        <input type="hidden" id="simplex-sign-${i}" value="<=">
         <input type="number" id="simplex-rhs-${i}" value="${defaultRHS}" class="solver-input" style="width: 60px; text-align:center; padding:0;">
       `;
       constContainer.appendChild(row);
@@ -277,18 +284,107 @@ function initSimplexForm() {
   rebuild();
 }
 
-function solveSimplexModel() {
-  const optType = document.getElementById('simplex-opt-type').value;
-  const numVars = parseInt(document.getElementById('simplex-vars-count').value);
-  const numConst = parseInt(document.getElementById('simplex-const-count').value);
-  const output = document.getElementById('simplex-output-area');
+function initBigMForm() {
+  const selectVars = document.getElementById('bigm-vars-count');
+  const selectConst = document.getElementById('bigm-const-count');
   
+  if (!selectVars || !selectConst) return;
+
+  const rebuild = () => {
+    const numVars = parseInt(selectVars.value);
+    const numConst = parseInt(selectConst.value);
+    
+    // Generate Objective Row
+    const objRow = document.getElementById('bigm-obj-row');
+    objRow.innerHTML = '';
+    const objLabel = document.createElement('span');
+    objLabel.className = 'var-term';
+    objLabel.innerHTML = 'Z = &nbsp;';
+    objRow.appendChild(objLabel);
+
+    for (let j = 1; j <= numVars; j++) {
+      const cell = document.createElement('div');
+      cell.className = 'coeff-cell';
+      cell.innerHTML = `
+        <input type="number" id="bigm-c-${j}" value="${j === 1 ? 3 : 5}" class="solver-input">
+        <span class="var-term">x<sub>${j}</sub></span>
+        ${j < numVars ? '<span class="var-term">&nbsp;+&nbsp;</span>' : ''}
+      `;
+      objRow.appendChild(cell);
+    }
+
+    // Generate Constraints (with <=, >=, = selects for Big M)
+    const constContainer = document.getElementById('bigm-constraints-container');
+    constContainer.innerHTML = '';
+
+    for (let i = 1; i <= numConst; i++) {
+      const row = document.createElement('div');
+      row.className = 'constraint-row';
+      
+      let varsHTML = '';
+      for (let j = 1; j <= numVars; j++) {
+        let defaultVal = 1;
+        if (i === 1 && j === 1) defaultVal = 1;
+        else if (i === 1 && j === 2) defaultVal = 0; 
+        else if (i === 2 && j === 1) defaultVal = 0;
+        else if (i === 2 && j === 2) defaultVal = 2; 
+        else if (i === 3 && j === 1) defaultVal = 3;
+        else if (i === 3 && j === 2) defaultVal = 2; 
+
+        varsHTML += `
+          <div class="coeff-cell">
+            <input type="number" id="bigm-a-${i}-${j}" value="${defaultVal}" class="solver-input">
+            <span class="var-term">x<sub>${j}</sub></span>
+            ${j < numVars ? '<span class="var-term">&nbsp;+&nbsp;</span>' : ''}
+          </div>
+        `;
+      }
+
+      let defaultRHS = 10;
+      if (i === 1) defaultRHS = 4;
+      else if (i === 2) defaultRHS = 12;
+      else if (i === 3) defaultRHS = 18;
+
+      row.innerHTML = `
+        <span class="var-term" style="margin-right:0.5rem; color: var(--text-gray-dark);">[${i}]</span>
+        ${varsHTML}
+        <select id="bigm-sign-${i}" class="solver-select constraint-sign">
+          <option value="<=" selected>&le;</option>
+          <option value=">=">&ge;</option>
+          <option value="=">=</option>
+        </select>
+        <input type="number" id="bigm-rhs-${i}" value="${defaultRHS}" class="solver-input" style="width: 60px; text-align:center; padding:0;">
+      `;
+      constContainer.appendChild(row);
+    }
+  };
+
+  selectVars.addEventListener('change', rebuild);
+  selectConst.addEventListener('change', rebuild);
+  rebuild();
+}
+
+function solveSimplexModel() {
+  runSimplexSolver('simplex');
+}
+
+function solveBigMModel() {
+  runSimplexSolver('bigm');
+}
+
+function runSimplexSolver(prefix) {
+  const optType = document.getElementById(`${prefix}-opt-type`).value;
+  const numVars = parseInt(document.getElementById(`${prefix}-vars-count`).value);
+  const numConst = parseInt(document.getElementById(`${prefix}-const-count`).value);
+  const output = document.getElementById(`${prefix}-output-area`);
+  
+  if (!output) return;
   output.innerHTML = '<h3 style="color: var(--primary-cyan); margin-bottom:1rem;">Ejecutando algoritmo...</h3>';
 
   // Read objective coefficients
   const c = [];
   for (let j = 1; j <= numVars; j++) {
-    c.push(parseFloat(document.getElementById(`simplex-c-${j}`).value) || 0);
+    c.push(parseFloat(document.getElementById(`${prefix}-c-${j}`).value) || 0);
   }
 
   // Read constraints coefficients
@@ -298,11 +394,11 @@ function solveSimplexModel() {
   for (let i = 1; i <= numConst; i++) {
     const row = [];
     for (let j = 1; j <= numVars; j++) {
-      row.push(parseFloat(document.getElementById(`simplex-a-${i}-${j}`).value) || 0);
+      row.push(parseFloat(document.getElementById(`${prefix}-a-${i}-${j}`).value) || 0);
     }
     A.push(row);
-    signs.push(document.getElementById(`simplex-sign-${i}`).value);
-    b.push(parseFloat(document.getElementById(`simplex-rhs-${i}`).value) || 0);
+    signs.push(document.getElementById(`${prefix}-sign-${i}`).value);
+    b.push(parseFloat(document.getElementById(`${prefix}-rhs-${i}`).value) || 0);
   }
 
   // PRE-PROCESSING: RHS must be >= 0
@@ -323,7 +419,6 @@ function solveSimplexModel() {
   let numArtificials = 0;
   
   // Track which row gets what variable
-  const constraintVars = []; // Array of info: { type, index, col }
   for (let i = 0; i < numConst; i++) {
     if (signs[i] === '<=') {
       numSlacks++;
@@ -344,11 +439,10 @@ function solveSimplexModel() {
   for (let j = 1; j <= numArtificials; j++) colNames.push(`a${j}`);
   colNames.push('RHS');
 
-  const totalCols = colNames.length - 1; // RHS is last, exclude it from active size
+  const totalCols = colNames.length - 1; // RHS is last
   const rhsCol = totalCols;
 
   // Matrix allocation
-  // Rows: 0 .. numConst-1 are constraints. Row numConst is the Z-row.
   const tableau = [];
   for (let i = 0; i <= numConst; i++) {
     const row = [];
@@ -396,7 +490,6 @@ function solveSimplexModel() {
   }
 
   // Setup Z-row (Cost Row)
-  // Maximize Z' = Sum( -c_j * x_j ) initially for maximize, or negate coefficients for minimize.
   const scale = (optType === 'max') ? 1 : -1;
   
   for (let j = 0; j < numVars; j++) {
@@ -404,7 +497,6 @@ function solveSimplexModel() {
   }
 
   // Artificial penalty in Z-row
-  // If maximizing Z', we subtract M * a_i (since standard maximizes). So equation Z' + M*a = 0, Z-row coefficient is +M.
   const artOffset = numVars + numSlacks + numSurplus;
   for (let j = 0; j < numArtificials; j++) {
     tableau[numConst][artOffset + j] = new BigM(0, 1); // +1 * M
@@ -435,10 +527,7 @@ function solveSimplexModel() {
     for (let j = 0; j < numVars; j++) {
       constStr += `${A[i][j]}x<sub>${j+1}</sub> + `;
     }
-    // Remove extra +
     constStr = constStr.substring(0, constStr.length - 2);
-    // Add slacks, etc.
-    let count = 0;
     if (signs[i] === '<=') {
       constStr += `+ s<sub>${i+1}</sub>`;
     } else if (signs[i] === '>=') {
@@ -452,13 +541,9 @@ function solveSimplexModel() {
   stdHTML += `</div></div>`;
 
   // ELIMINATION OF ARTIFICIAL VARIABLES FROM Z-ROW
-  // We must make initial basic Z-row coefficients of artificial variables zero.
-  // Z_row = Z_row - M * row_i
   for (let i = 0; i < numConst; i++) {
     if (signs[i] === '>=' || signs[i] === '=') {
-      // Subtract M * Row_i
       for (let j = 0; j <= rhsCol; j++) {
-        // row_i[j] * M
         const penaltyVal = new BigM(0, tableau[i][j].r);
         tableau[numConst][j] = tableau[numConst][j].sub(penaltyVal);
       }
@@ -472,13 +557,11 @@ function solveSimplexModel() {
   let iterations = 0;
   const maxIterations = 20;
 
-  // Record iteration 0 (Initial Tableau)
   recordIteration(tableau, colNames, currentBasis, numConst, rhsCol, "Tabla Inicial (Mapeo Estándar)", iterationsLog);
 
   let unbounded = false;
 
   while (!solved && iterations < maxIterations) {
-    // 1. Find Entering Variable (most negative column in Z-row)
     let enteringCol = -1;
     let minCoeff = new BigM(0, 0);
 
@@ -489,13 +572,11 @@ function solveSimplexModel() {
       }
     }
 
-    // If no negative coefficients, we are optimal
     if (enteringCol === -1) {
       solved = true;
       break;
     }
 
-    // 2. Find Leaving Variable (Minimum ratio RHS / pivot_coeff for pivot_coeff > 0)
     let leavingRow = -1;
     let minRatio = Infinity;
 
@@ -516,20 +597,14 @@ function solveSimplexModel() {
       break;
     }
 
-    // 3. Highlight the pivot element for recording
     const pivotVal = tableau[leavingRow][enteringCol].r;
-
-    // Record step description
     const enteringVarName = colNames[enteringCol];
     const leavingVarName = currentBasis[leavingRow];
     
-    // Perform Pivot update
-    // Scale leaving row
     for (let j = 0; j <= rhsCol; j++) {
       tableau[leavingRow][j] = tableau[leavingRow][j].div(pivotVal);
     }
 
-    // Zero out other rows
     for (let i = 0; i <= numConst; i++) {
       if (i !== leavingRow) {
         const factor = tableau[i][enteringCol];
@@ -539,11 +614,9 @@ function solveSimplexModel() {
       }
     }
 
-    // Update basis
     currentBasis[leavingRow] = enteringVarName;
     iterations++;
 
-    // Record this iteration tableau
     recordIteration(
       tableau, 
       colNames, 
@@ -557,7 +630,7 @@ function solveSimplexModel() {
     );
   }
 
-  // Check feasibility (are artificial variables present in basis with positive values?)
+  // Check feasibility
   let infeasible = false;
   if (!unbounded) {
     for (let i = 0; i < numConst; i++) {
@@ -576,7 +649,6 @@ function solveSimplexModel() {
 
   let finalHTML = stdHTML;
   
-  // Render iteration steps
   iterationsLog.forEach((step, idx) => {
     finalHTML += renderTableauHTML(step, idx);
   });
@@ -603,10 +675,7 @@ function solveSimplexModel() {
     finalZ = tableau[numConst][rhsCol].r * scale;
     if (Math.abs(finalZ - Math.round(finalZ)) < 1e-6) finalZ = Math.round(finalZ);
 
-    // Build optimal variables report
     let varsReportHTML = "";
-    
-    // Extract basic variables values
     for (let i = 0; i < numConst; i++) {
       const varName = currentBasis[i];
       let val = tableau[i][rhsCol].r;
@@ -643,11 +712,11 @@ function solveSimplexModel() {
         </div>
         <div class="simplex-graphical-layout" style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 1.5rem; padding: 1.5rem; text-align: left;">
           <div style="position: relative; width: 100%; height: 320px; background: rgba(0,0,0,0.25); border: 1px solid var(--border-light); border-radius: 8px; overflow: hidden; padding: 0.5rem;">
-            <canvas id="live-simplex-canvas" style="width: 100%; height: 100%;"></canvas>
+            <canvas id="live-${prefix}-canvas" style="width: 100%; height: 100%;"></canvas>
           </div>
           <div class="simplex-interpretation" style="margin: 0; display: flex; flex-direction: column; justify-content: center;">
             <strong>📈 Interpretación Gráfica:</strong><br>
-            <div id="simplex-graphical-interpretation-text" style="font-size: 0.85rem; line-height: 1.5; color: var(--text-gray-light); margin-top: 0.5rem;"></div>
+            <div id="${prefix}-graphical-interpretation-text" style="font-size: 0.85rem; line-height: 1.5; color: var(--text-gray-light); margin-top: 0.5rem;"></div>
           </div>
         </div>
       </div>
@@ -657,7 +726,7 @@ function solveSimplexModel() {
   output.innerHTML = finalHTML;
 
   if (numVars === 2) {
-    drawGraphicalMethod('live-simplex-canvas', 'simplex-graphical-interpretation-text', optType, numVars, numConst, c, A, signs, b, optimalValues, finalZ);
+    drawGraphicalMethod(`live-${prefix}-canvas`, `${prefix}-graphical-interpretation-text`, optType, numVars, numConst, c, A, signs, b, optimalValues, finalZ);
   }
 }
 
