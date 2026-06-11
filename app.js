@@ -5,6 +5,7 @@
 document.addEventListener('DOMContentLoaded', () => {
   initNavbar();
   initDashboardTabs();
+  initBackgroundParticles();
   
   // Initialize dynamic forms
   initGraphicalForm();
@@ -2356,4 +2357,121 @@ function solveGraphicalModel() {
   output.innerHTML = finalHTML;
 
   drawGraphicalMethod('live-graphical-canvas', 'graphical-interpretation-text', optType, 2, numConst, c, A, signs, b, sol.optimalPt ? { x1: sol.optimalPt.x, x2: sol.optimalPt.y } : null, sol.finalZ);
+}
+
+/* -------------------------------------------------------------
+   9. INTERACTIVE BACKGROUND PARTICLES (CURSOR TRACKING)
+   ------------------------------------------------------------- */
+function initBackgroundParticles() {
+  const canvas = document.createElement('canvas');
+  canvas.id = 'bg-particles-canvas';
+  canvas.style.position = 'fixed';
+  canvas.style.top = '0';
+  canvas.style.left = '0';
+  canvas.style.width = '100vw';
+  canvas.style.height = '100vh';
+  canvas.style.pointerEvents = 'none';
+  canvas.style.zIndex = '1';
+  document.body.appendChild(canvas);
+
+  const ctx = canvas.getContext('2d');
+  let w = canvas.width = window.innerWidth;
+  let h = canvas.height = window.innerHeight;
+
+  window.addEventListener('resize', () => {
+    w = canvas.width = window.innerWidth;
+    h = canvas.height = window.innerHeight;
+  });
+
+  const particles = [];
+  const maxParticles = 65;
+  let mouse = { x: w / 2, y: h / 2, active: false };
+
+  window.addEventListener('mousemove', (e) => {
+    mouse.x = e.clientX;
+    mouse.y = e.clientY;
+    mouse.active = true;
+    
+    if (particles.length < maxParticles + 40 && Math.random() < 0.4) {
+      particles.push(createParticle(mouse.x, mouse.y, true));
+    }
+  });
+
+  window.addEventListener('mouseleave', () => {
+    mouse.active = false;
+  });
+
+  const colors = [
+    { r: 0, g: 240, b: 255 },  // Cyan
+    { r: 189, g: 0, b: 255 },  // Purple
+    { r: 0, g: 85, b: 255 }    // Blue
+  ];
+
+  function createParticle(x, y, isMouseTrail = false) {
+    const col = colors[Math.floor(Math.random() * colors.length)];
+    return {
+      x: x || Math.random() * w,
+      y: y || Math.random() * h,
+      vx: (Math.random() - 0.5) * 1.2,
+      vy: (Math.random() - 0.5) * 1.2,
+      size: Math.random() * 2 + 0.6,
+      alpha: isMouseTrail ? 0.95 : Math.random() * 0.45 + 0.1,
+      decay: Math.random() * 0.012 + 0.006,
+      r: col.r,
+      g: col.g,
+      b: col.b,
+      isTrail: isMouseTrail
+    };
+  }
+
+  for (let i = 0; i < maxParticles; i++) {
+    particles.push(createParticle());
+  }
+
+  function animate() {
+    ctx.clearRect(0, 0, w, h);
+
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.x += p.vx;
+      p.y += p.vy;
+
+      if (mouse.active) {
+        const dx = mouse.x - p.x;
+        const dy = mouse.y - p.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < 180) {
+          const force = (180 - dist) / 180;
+          p.vx += (dx / dist) * force * 0.03;
+          p.vy += (dy / dist) * force * 0.03;
+        }
+      }
+
+      p.alpha -= p.decay;
+
+      if (p.alpha <= 0 || p.x < 0 || p.x > w || p.y < 0 || p.y > h) {
+        particles.splice(i, 1);
+        if (!p.isTrail && particles.length < maxParticles) {
+          particles.push(createParticle());
+        }
+        continue;
+      }
+
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${p.r}, ${p.g}, ${p.b}, ${p.alpha})`;
+      if (p.isTrail) {
+        ctx.shadowBlur = 3;
+        ctx.shadowColor = `rgb(${p.r}, ${p.g}, ${p.b})`;
+      } else {
+        ctx.shadowBlur = 0;
+      }
+      ctx.fill();
+    }
+    
+    ctx.shadowBlur = 0;
+    requestAnimationFrame(animate);
+  }
+
+  animate();
 }

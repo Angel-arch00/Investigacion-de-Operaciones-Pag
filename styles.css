@@ -2033,6 +2033,67 @@ body {
   border: 1px solid var(--border-light);
   border-radius: 16px;
   padding: 1.8rem;
+  transition: all 0.3s ease;
+}
+
+#pane-graphical .solver-input-section {
+  border-top: 3px solid var(--primary-cyan);
+  box-shadow: 0 4px 30px rgba(0, 240, 255, 0.02);
+}
+#pane-simplex .solver-input-section {
+  border-top: 3px solid var(--primary-blue);
+  box-shadow: 0 4px 30px rgba(0, 85, 255, 0.02);
+}
+#pane-bigm .solver-input-section {
+  border-top: 3px solid var(--primary-purple);
+  box-shadow: 0 4px 30px rgba(189, 0, 255, 0.02);
+}
+#pane-hungarian .solver-input-section {
+  border-top: 3px solid var(--primary-purple);
+  box-shadow: 0 4px 30px rgba(189, 0, 255, 0.02);
+}
+#pane-transport .solver-input-section {
+  border-top: 3px solid var(--primary-blue);
+  box-shadow: 0 4px 30px rgba(0, 85, 255, 0.02);
+}
+#pane-eoq .solver-input-section {
+  border-top: 3px solid var(--primary-purple);
+  box-shadow: 0 4px 30px rgba(189, 0, 255, 0.02);
+}
+#pane-markov .markov-matrix-box {
+  border-top: 3px solid var(--primary-cyan);
+  box-shadow: 0 4px 30px rgba(0, 240, 255, 0.02);
+  transition: all 0.3s ease;
+}
+
+/* Specific Focus Theme Colors */
+#pane-graphical .solver-input:focus, #pane-graphical .solver-select:focus, #pane-graphical .coefficients-row:focus-within {
+  border-color: var(--primary-cyan) !important;
+  box-shadow: 0 0 10px rgba(0, 240, 255, 0.25) !important;
+}
+#pane-simplex .solver-input:focus, #pane-simplex .solver-select:focus, #pane-simplex .coefficients-row:focus-within {
+  border-color: var(--primary-blue) !important;
+  box-shadow: 0 0 10px rgba(0, 85, 255, 0.25) !important;
+}
+#pane-bigm .solver-input:focus, #pane-bigm .solver-select:focus, #pane-bigm .coefficients-row:focus-within {
+  border-color: var(--primary-purple) !important;
+  box-shadow: 0 0 10px rgba(189, 0, 255, 0.25) !important;
+}
+#pane-hungarian .matrix-grid-input:focus, #pane-hungarian .solver-select:focus {
+  border-color: var(--primary-purple) !important;
+  box-shadow: 0 0 10px rgba(189, 0, 255, 0.25) !important;
+}
+#pane-transport .matrix-grid-input:focus, #pane-transport .solver-select:focus {
+  border-color: var(--primary-blue) !important;
+  box-shadow: 0 0 10px rgba(0, 85, 255, 0.25) !important;
+}
+#pane-eoq .solver-input:focus {
+  border-color: var(--primary-purple) !important;
+  box-shadow: 0 0 10px rgba(189, 0, 255, 0.25) !important;
+}
+#pane-markov .markov-matrix-grid input:focus {
+  border-color: var(--primary-cyan) !important;
+  box-shadow: 0 0 10px rgba(0, 240, 255, 0.25) !important;
 }
 
 .solver-card-header {
