@@ -709,31 +709,7 @@ function runSimplexSolver(prefix) {
     `;
   }
 
-  if (numVars === 2) {
-    finalHTML += `
-      <div class="iteration-tableau-card" style="border-color: var(--primary-cyan); margin-top: 1.5rem;">
-        <div class="simplex-iteration-title">
-          <span>Solución Gráfica (Método Gráfico)</span>
-          <span style="font-family: monospace; font-size: 0.75rem; color: var(--text-gray-dark);">[grafica-2d]</span>
-        </div>
-        <div class="simplex-graphical-layout" style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 1.5rem; padding: 1.5rem; text-align: left;">
-          <div style="position: relative; width: 100%; height: 320px; background: rgba(0,0,0,0.25); border: 1px solid var(--border-light); border-radius: 8px; overflow: hidden; padding: 0.5rem;">
-            <canvas id="live-${prefix}-canvas" style="width: 100%; height: 100%;"></canvas>
-          </div>
-          <div class="simplex-interpretation" style="margin: 0; display: flex; flex-direction: column; justify-content: center;">
-            <strong>📈 Interpretación Gráfica:</strong><br>
-            <div id="${prefix}-graphical-interpretation-text" style="font-size: 0.85rem; line-height: 1.5; color: var(--text-gray-light); margin-top: 0.5rem;"></div>
-          </div>
-        </div>
-      </div>
-    `;
-  }
-
   output.innerHTML = finalHTML;
-
-  if (numVars === 2) {
-    drawGraphicalMethod(`live-${prefix}-canvas`, `${prefix}-graphical-interpretation-text`, optType, numVars, numConst, c, A, signs, b, optimalValues, finalZ);
-  }
 }
 
 function recordIteration(tab, cols, basis, numConst, rhsCol, title, log, pRow = -1, pCol = -1) {
