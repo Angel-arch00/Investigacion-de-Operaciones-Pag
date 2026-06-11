@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------
-   OptiFlow IO - Academic Operations Research Solver Suite
+   TAURO IO - Academic Operations Research Solver Suite
    ------------------------------------------------------------- */
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -22,6 +22,24 @@ document.addEventListener('DOMContentLoaded', () => {
   solveEoqModel();
   // Markov auto recalculate once
   solveMarkovModel();
+  // Simplex auto solve once
+  solveSimplexModel();
+
+  // Redraw charts on window resize to ensure responsiveness
+  window.addEventListener('resize', () => {
+    const activeTab = document.querySelector('.dash-preview-tab.active');
+    if (activeTab) {
+      const target = activeTab.getAttribute('data-tab');
+      if (target === 'simplex') {
+        const selectVars = document.getElementById('simplex-vars-count');
+        if (selectVars && parseInt(selectVars.value) === 2) {
+          solveSimplexModel();
+        }
+      } else if (target === 'eoq') {
+        solveEoqModel();
+      }
+    }
+  });
 });
 
 /* -------------------------------------------------------------
@@ -162,6 +180,8 @@ function initDashboardTabs() {
       
       if (target === 'eoq') {
         setTimeout(solveEoqModel, 100);
+      } else if (target === 'simplex') {
+        setTimeout(solveSimplexModel, 100);
       }
     });
   });
@@ -450,6 +470,8 @@ function solveSimplexModel() {
   // Record iteration 0 (Initial Tableau)
   recordIteration(tableau, colNames, currentBasis, numConst, rhsCol, "Tabla Inicial (Mapeo Estándar)", iterationsLog);
 
+  let unbounded = false;
+
   while (!solved && iterations < maxIterations) {
     // 1. Find Entering Variable (most negative column in Z-row)
     let enteringCol = -1;
@@ -485,16 +507,8 @@ function solveSimplexModel() {
     }
 
     if (leavingRow === -1) {
-      // Unbounded solution
-      output.innerHTML = stdHTML + `
-        <div class="optimal-solution-card" style="border-color: #ff5f56; background: rgba(255,95,86,0.05);">
-          <h4 style="color:#ff5f56;">⚠️ Solución Ilimitada</h4>
-          <p style="font-size:0.85rem; line-height:1.5; color: var(--text-gray-light);">
-            El problema no está acotado (se puede incrementar Z indefinidamente). Todas las razones del coeficiente pivote son negativas o cero.
-          </p>
-        </div>
-      `;
-      return;
+      unbounded = true;
+      break;
     }
 
     // 3. Highlight the pivot element for recording
@@ -540,18 +554,20 @@ function solveSimplexModel() {
 
   // Check feasibility (are artificial variables present in basis with positive values?)
   let infeasible = false;
-  for (let i = 0; i < numConst; i++) {
-    if (currentBasis[i].startsWith('a') && Math.abs(tableau[i][rhsCol].r) > 1e-4) {
-      infeasible = true;
+  if (!unbounded) {
+    for (let i = 0; i < numConst; i++) {
+      if (currentBasis[i].startsWith('a') && Math.abs(tableau[i][rhsCol].r) > 1e-4) {
+        infeasible = true;
+      }
     }
   }
 
   // Z-optimal final calculation
-  // Final Z is tableau[numConst][rhsCol].r
-  let finalZ = tableau[numConst][rhsCol].r * scale;
-  
-  // Clean up floating point errors
-  if (Math.abs(finalZ - Math.round(finalZ)) < 1e-6) finalZ = Math.round(finalZ);
+  let finalZ = 0;
+  let optimalValues = {};
+  for (let j = 1; j <= numVars; j++) {
+    optimalValues[`x${j}`] = 0;
+  }
 
   let finalHTML = stdHTML;
   
@@ -560,7 +576,16 @@ function solveSimplexModel() {
     finalHTML += renderTableauHTML(step, idx);
   });
 
-  if (infeasible) {
+  if (unbounded) {
+    finalHTML += `
+      <div class="optimal-solution-card" style="border-color: #ff5f56; background: rgba(255,95,86,0.05);">
+        <h4 style="color:#ff5f56;">⚠️ Solución Ilimitada</h4>
+        <p style="font-size:0.85rem; line-height:1.5; color: var(--text-gray-light);">
+          El problema no está acotado (se puede incrementar Z indefinidamente). Todas las razones del coeficiente pivote son negativas o cero.
+        </p>
+      </div>
+    `;
+  } else if (infeasible) {
     finalHTML += `
       <div class="optimal-solution-card" style="border-color: #ffbd2e; background: rgba(255,189,46,0.05);">
         <h4 style="color:#ffbd2e;">⚠️ Sistema Infactible</h4>
@@ -570,14 +595,12 @@ function solveSimplexModel() {
       </div>
     `;
   } else {
+    finalZ = tableau[numConst][rhsCol].r * scale;
+    if (Math.abs(finalZ - Math.round(finalZ)) < 1e-6) finalZ = Math.round(finalZ);
+
     // Build optimal variables report
     let varsReportHTML = "";
-    const optimalValues = {};
     
-    // Initialize all decision vars to 0
-    for (let j = 1; j <= numVars; j++) {
-      optimalValues[`x${j}`] = 0;
-    }
     // Extract basic variables values
     for (let i = 0; i < numConst; i++) {
       const varName = currentBasis[i];
@@ -606,7 +629,31 @@ function solveSimplexModel() {
     `;
   }
 
+  if (numVars === 2) {
+    finalHTML += `
+      <div class="iteration-tableau-card" style="border-color: var(--primary-cyan); margin-top: 1.5rem;">
+        <div class="simplex-iteration-title">
+          <span>Solución Gráfica (Método Gráfico)</span>
+          <span style="font-family: monospace; font-size: 0.75rem; color: var(--text-gray-dark);">[grafica-2d]</span>
+        </div>
+        <div class="simplex-graphical-layout" style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 1.5rem; padding: 1.5rem; text-align: left;">
+          <div style="position: relative; width: 100%; height: 320px; background: rgba(0,0,0,0.25); border: 1px solid var(--border-light); border-radius: 8px; overflow: hidden; padding: 0.5rem;">
+            <canvas id="live-simplex-canvas" style="width: 100%; height: 100%;"></canvas>
+          </div>
+          <div class="simplex-interpretation" style="margin: 0; display: flex; flex-direction: column; justify-content: center;">
+            <strong>📈 Interpretación Gráfica:</strong><br>
+            <div id="simplex-graphical-interpretation-text" style="font-size: 0.85rem; line-height: 1.5; color: var(--text-gray-light); margin-top: 0.5rem;"></div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   output.innerHTML = finalHTML;
+
+  if (numVars === 2) {
+    drawGraphicalMethod(optType, numVars, numConst, c, A, signs, b, optimalValues, finalZ);
+  }
 }
 
 function recordIteration(tab, cols, basis, numConst, rhsCol, title, log, pRow = -1, pCol = -1) {
@@ -1616,4 +1663,333 @@ function solveMarkovModel() {
   animateDot('p-dot-2', p2_val);
   animateDot('p-dot-3', p3_val);
   animateDot('p-dot-4', p4_val);
+}
+
+/* -------------------------------------------------------------
+   7. GRAPHICAL METHOD 2D CHART RENDERER
+   ------------------------------------------------------------- */
+function getIntersection(a1, b1, c1, a2, b2, c2) {
+  const det = a1 * b2 - a2 * b1;
+  if (Math.abs(det) < 1e-9) return null; // parallel lines
+  const x = (c1 * b2 - c2 * b1) / det;
+  const y = (a1 * c2 - a2 * c1) / det;
+  return { x, y };
+}
+
+function drawGraphicalMethod(optType, numVars, numConst, c, A, signs, b, optimalValues, finalZ) {
+  if (numVars !== 2) return;
+  
+  const canvas = document.getElementById('live-simplex-canvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  
+  // Set dimensions based on wrapper size
+  const parent = canvas.parentNode;
+  canvas.width = parent.clientWidth;
+  canvas.height = parent.clientHeight || 320;
+
+  const w = canvas.width;
+  const h = canvas.height;
+  const padLeft = 45;
+  const padBottom = 40;
+  const padTop = 20;
+  const padRight = 20;
+  
+  ctx.clearRect(0, 0, w, h);
+  
+  // Find intersections to scale bounds
+  let points = [];
+  const lines = [];
+  
+  // Add actual constraints
+  for (let i = 0; i < numConst; i++) {
+    lines.push({ a1: A[i][0], a2: A[i][1], b: b[i], label: `R${i+1}` });
+  }
+  // Add axes boundaries
+  lines.push({ a1: 1, a2: 0, b: 0, label: 'x2-axis' });
+  lines.push({ a1: 0, a2: 1, b: 0, label: 'x1-axis' });
+  
+  // Intersect all lines to find first-quadrant candidates
+  for (let i = 0; i < lines.length; i++) {
+    for (let j = i + 1; j < lines.length; j++) {
+      const pt = getIntersection(lines[i].a1, lines[i].a2, lines[i].b, lines[j].a1, lines[j].a2, lines[j].b);
+      if (pt && isFinite(pt.x) && isFinite(pt.y) && pt.x >= -1e-5 && pt.y >= -1e-5) {
+        points.push(pt);
+      }
+    }
+  }
+  
+  let xs = points.map(p => p.x).filter(x => x > 1e-5 && x < 1e6);
+  let ys = points.map(p => p.y).filter(y => y > 1e-5 && y < 1e6);
+  
+  let maxX = xs.length > 0 ? Math.max(...xs) : 10;
+  let maxY = ys.length > 0 ? Math.max(...ys) : 10;
+  
+  if (maxX > 1000) maxX = 100;
+  if (maxY > 1000) maxY = 100;
+  
+  const optX = optimalValues && optimalValues['x1'] !== undefined ? optimalValues['x1'] : 0;
+  const optY = optimalValues && optimalValues['x2'] !== undefined ? optimalValues['x2'] : 0;
+  
+  if (optX > 0) maxX = Math.max(maxX, optX);
+  if (optY > 0) maxY = Math.max(maxY, optY);
+  
+  maxX = maxX * 1.3;
+  maxY = maxY * 1.3;
+  
+  if (maxX < 1) maxX = 10;
+  if (maxY < 1) maxY = 10;
+  
+  // Coordinate transformations
+  const getX = x => padLeft + (x / maxX) * (w - padLeft - padRight);
+  const getY = y => h - padBottom - (y / maxY) * (h - padBottom - padTop);
+  
+  // Add viewport limit lines to complete polygon clipping
+  const viewportLines = [
+    ...lines,
+    { a1: 1, a2: 0, b: maxX, label: 'limit-x' },
+    { a1: 0, a2: 1, b: maxY, label: 'limit-y' }
+  ];
+  
+  // Evaluate all possible corners of viewportLines to find feasible ones
+  const allCorners = [];
+  for (let i = 0; i < viewportLines.length; i++) {
+    for (let j = i + 1; j < viewportLines.length; j++) {
+      const pt = getIntersection(viewportLines[i].a1, viewportLines[i].a2, viewportLines[i].b, viewportLines[j].a1, viewportLines[j].a2, viewportLines[j].b);
+      if (pt && isFinite(pt.x) && isFinite(pt.y)) {
+        allCorners.push(pt);
+      }
+    }
+  }
+  
+  const isFeasible = (x, y) => {
+    if (x < -1e-5 || y < -1e-5) return false;
+    if (x > maxX + 1e-5 || y > maxY + 1e-5) return false;
+    for (let i = 0; i < numConst; i++) {
+      const val = A[i][0] * x + A[i][1] * y;
+      if (signs[i] === '<=' && val > b[i] + 1e-5) return false;
+      if (signs[i] === '>=' && val < b[i] - 1e-5) return false;
+      if (signs[i] === '=' && Math.abs(val - b[i]) > 1e-5) return false;
+    }
+    return true;
+  };
+  
+  const feasibleCorners = [];
+  const seen = new Set();
+  for (const pt of allCorners) {
+    if (isFeasible(pt.x, pt.y)) {
+      const key = `${pt.x.toFixed(4)},${pt.y.toFixed(4)}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        feasibleCorners.push(pt);
+      }
+    }
+  }
+  
+  // Draw Grid Lines & Values
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
+  ctx.lineWidth = 1;
+  ctx.fillStyle = '#6b7280';
+  ctx.font = '8px monospace';
+  
+  for (let i = 1; i <= 5; i++) {
+    const gridXVal = maxX * (i / 5);
+    const gridX = getX(gridXVal);
+    ctx.beginPath();
+    ctx.moveTo(gridX, padTop);
+    ctx.lineTo(gridX, h - padBottom);
+    ctx.stroke();
+    ctx.fillText(gridXVal.toFixed(1), gridX - 8, h - padBottom + 12);
+    
+    const gridYVal = maxY * (i / 5);
+    const gridY = getY(gridYVal);
+    ctx.beginPath();
+    ctx.moveTo(padLeft, gridY);
+    ctx.lineTo(w - padRight, gridY);
+    ctx.stroke();
+    ctx.fillText(gridYVal.toFixed(1), padLeft - 26, gridY + 3);
+  }
+  
+  // Fill Feasible Region Polygon
+  if (feasibleCorners.length >= 3) {
+    const cx = feasibleCorners.reduce((sum, p) => sum + p.x, 0) / feasibleCorners.length;
+    const cy = feasibleCorners.reduce((sum, p) => sum + p.y, 0) / feasibleCorners.length;
+    
+    feasibleCorners.sort((p1, p2) => {
+      const a1 = Math.atan2(p1.y - cy, p1.x - cx);
+      const a2 = Math.atan2(p2.y - cy, p2.x - cx);
+      return a1 - a2;
+    });
+    
+    ctx.beginPath();
+    ctx.moveTo(getX(feasibleCorners[0].x), getY(feasibleCorners[0].y));
+    for (let i = 1; i < feasibleCorners.length; i++) {
+      ctx.lineTo(getX(feasibleCorners[i].x), getY(feasibleCorners[i].y));
+    }
+    ctx.closePath();
+    
+    const gradient = ctx.createLinearGradient(padLeft, padTop, w, h);
+    gradient.addColorStop(0, 'rgba(0, 240, 255, 0.15)');
+    gradient.addColorStop(1, 'rgba(189, 0, 255, 0.05)');
+    ctx.fillStyle = gradient;
+    ctx.fill();
+    
+    ctx.strokeStyle = 'rgba(0, 240, 255, 0.35)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+  
+  // Draw Constraint Lines
+  for (let i = 0; i < numConst; i++) {
+    const a1 = A[i][0];
+    const a2 = A[i][1];
+    const valB = b[i];
+    
+    let pStart, pEnd;
+    
+    if (Math.abs(a2) < 1e-9) {
+      const xVal = valB / a1;
+      pStart = { x: xVal, y: 0 };
+      pEnd = { x: xVal, y: maxY };
+    } else if (Math.abs(a1) < 1e-9) {
+      const yVal = valB / a2;
+      pStart = { x: 0, y: yVal };
+      pEnd = { x: maxX, y: yVal };
+    } else {
+      const candidatePts = [
+        { x: 0, y: valB / a2 },
+        { x: valB / a1, y: 0 },
+        { x: maxX, y: (valB - a1 * maxX) / a2 },
+        { x: (valB - a2 * maxY) / a1, y: maxY }
+      ].filter(p => p.x >= -1e-5 && p.x <= maxX + 1e-5 && p.y >= -1e-5 && p.y <= maxY + 1e-5);
+      
+      if (candidatePts.length >= 2) {
+        pStart = candidatePts[0];
+        pEnd = candidatePts[1];
+      }
+    }
+    
+    if (pStart && pEnd) {
+      ctx.beginPath();
+      ctx.moveTo(getX(pStart.x), getY(pStart.y));
+      ctx.lineTo(getX(pEnd.x), getY(pEnd.y));
+      
+      const colors = ['#00f0ff', '#bd00ff', '#0055ff', '#ffbd2e'];
+      ctx.strokeStyle = colors[i % colors.length];
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      
+      ctx.fillStyle = colors[i % colors.length];
+      ctx.font = '9px monospace';
+      const labelX = getX(pStart.x + (pEnd.x - pStart.x) * 0.7);
+      const labelY = getY(pStart.y + (pEnd.y - pStart.y) * 0.7) - 4;
+      ctx.fillText(`R${i+1}`, labelX, labelY);
+    }
+  }
+  
+  // Draw Z objective function line (dashed)
+  if (optX > 0 || optY > 0) {
+    const c1 = c[0];
+    const c2 = c[1];
+    const zVal = finalZ;
+    
+    let zStart, zEnd;
+    if (Math.abs(c2) < 1e-9) {
+      const zX = zVal / c1;
+      zStart = { x: zX, y: 0 };
+      zEnd = { x: zX, y: maxY };
+    } else if (Math.abs(c1) < 1e-9) {
+      const zY = zVal / c2;
+      zStart = { x: 0, y: zY };
+      zEnd = { x: maxX, y: zY };
+    } else {
+      const candidateZPts = [
+        { x: 0, y: zVal / c2 },
+        { x: zVal / c1, y: 0 },
+        { x: maxX, y: (zVal - c1 * maxX) / c2 },
+        { x: (zVal - c2 * maxY) / c1, y: maxY }
+      ].filter(p => p.x >= -1e-5 && p.x <= maxX + 1e-5 && p.y >= -1e-5 && p.y <= maxY + 1e-5);
+      
+      if (candidateZPts.length >= 2) {
+        zStart = candidateZPts[0];
+        zEnd = candidateZPts[1];
+      }
+    }
+    
+    if (zStart && zEnd) {
+      ctx.beginPath();
+      ctx.setLineDash([4, 4]);
+      ctx.strokeStyle = '#27c93f';
+      ctx.lineWidth = 1.5;
+      ctx.moveTo(getX(zStart.x), getY(zStart.y));
+      ctx.lineTo(getX(zEnd.x), getY(zEnd.y));
+      ctx.stroke();
+      ctx.setLineDash([]);
+      
+      ctx.fillStyle = '#27c93f';
+      ctx.font = 'italic 8px monospace';
+      const zLabelX = getX(zStart.x + (zEnd.x - zStart.x) * 0.25) + 4;
+      const zLabelY = getY(zStart.y + (zEnd.y - zStart.y) * 0.25) - 4;
+      ctx.fillText(`Z óptima`, zLabelX, zLabelY);
+    }
+  }
+  
+  // Draw Optimal Dot
+  if (optX > 0 || optY > 0) {
+    if (isFeasible(optX, optY)) {
+      const oX = getX(optX);
+      const oY = getY(optY);
+      
+      ctx.fillStyle = '#27c93f';
+      ctx.shadowBlur = 10;
+      ctx.shadowColor = '#27c93f';
+      ctx.beginPath();
+      ctx.arc(oX, oY, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0; // reset
+      
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(oX, oY, 5, 0, Math.PI * 2);
+      ctx.stroke();
+      
+      ctx.fillStyle = '#27c93f';
+      ctx.font = 'bold 9px sans-serif';
+      ctx.fillText(`Óptimo (${optX.toFixed(2)}, ${optY.toFixed(2)})`, oX + 8, oY - 4);
+    }
+  }
+  
+  // Draw Main Axes
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(padLeft, padTop);
+  ctx.lineTo(padLeft, h - padBottom);
+  ctx.lineTo(w - padRight, h - padBottom);
+  ctx.stroke();
+  
+  ctx.fillStyle = '#9ca3af';
+  ctx.font = 'bold 9px sans-serif';
+  ctx.fillText('x₁', w - padRight - 15, h - padBottom + 20);
+  ctx.fillText('x₂', padLeft - 15, padTop + 5);
+  
+  // Update interpretation text description
+  const interpretationText = document.getElementById('simplex-graphical-interpretation-text');
+  if (interpretationText) {
+    let html = `El área sombreada representa la <strong>Región Factible</strong>.<br><br>`;
+    html += `Restricciones del sistema:<br>`;
+    for (let i = 0; i < numConst; i++) {
+      const colors = ['cyan', 'purple', 'blue', 'orange'];
+      const colorName = colors[i % colors.length];
+      const signLabel = signs[i] === '<=' ? '&le;' : (signs[i] === '>=' ? '&ge;' : '=');
+      html += `<div style="margin: 2px 0;"><span style="display:inline-block; width:8px; height:8px; background:${colors[i%colors.length]}; border-radius:2px; margin-right:5px;"></span><strong>R${i+1}</strong>: ${A[i][0]}x₁ + ${A[i][1]}x₂ ${signLabel} ${b[i]}</div>`;
+    }
+    if (optX > 0 || optY > 0) {
+      html += `<br><div style="border-top:1px solid rgba(255,255,255,0.05); padding-top:6px; margin-top:6px;">El punto óptimo se ubica en <strong>x₁ = ${optX.toFixed(2)}</strong>, <strong>x₂ = ${optY.toFixed(2)}</strong>, alcanzando <strong>Z = ${finalZ.toFixed(2)}</strong>.</div>`;
+    } else {
+      html += `<br><div style="border-top:1px solid rgba(255,255,255,0.05); padding-top:6px; margin-top:6px; color:#ff5f56;">No se encontró solución óptima factible o acotada.</div>`;
+    }
+    interpretationText.innerHTML = html;
+  }
 }
