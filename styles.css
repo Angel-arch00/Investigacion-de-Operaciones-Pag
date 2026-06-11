@@ -2445,3 +2445,10 @@ body {
   font-family: monospace;
 }
 
+#btn-export-markov-excel:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border-color: var(--primary-cyan) !important;
+  color: var(--primary-cyan) !important;
+  box-shadow: 0 0 10px rgba(0, 240, 255, 0.15);
+}
+

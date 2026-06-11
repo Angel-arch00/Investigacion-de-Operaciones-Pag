@@ -2080,10 +2080,48 @@ function solveMarkovModel() {
       tableHTML += `<tr>${cells}</tr>`;
     });
     tableHTML += `</tbody></table></div>`;
+    tableHTML += `
+      <button id="btn-export-markov-excel" class="btn" style="width: 100%; margin-top: 0.8rem; border: 1px solid var(--border-light); background: rgba(255, 255, 255, 0.02); color: var(--text-white); font-size: 0.8rem; height: 38px; display: inline-flex; justify-content: center; align-items: center; gap: 0.5rem; border-radius: 8px; cursor: pointer; transition: all 0.2s;">
+        <span>📊 Exportar Evolución a Excel (.csv)</span>
+      </button>
+    `;
     evolutionContainer.innerHTML = tableHTML;
+
+    document.getElementById('btn-export-markov-excel').addEventListener('click', () => {
+      exportMarkovToExcel(history, N);
+    });
   }
 
   drawMarkovGraph(N, P);
+}
+
+function exportMarkovToExcel(history, N) {
+  let csvContent = "\uFEFF"; // UTF-8 BOM
+  csvContent += "sep=,\r\n"; // Excel column separator specifier
+  
+  let header = "Paso";
+  for (let j = 1; j <= N; j++) {
+    header += `,Estado ${j}`;
+  }
+  csvContent += header + "\r\n";
+  
+  history.forEach((vec, step) => {
+    let row = `${step}`;
+    for (let j = 0; j < N; j++) {
+      row += `,${(vec[j] * 100).toFixed(2)}%`;
+    }
+    csvContent += row + "\r\n";
+  });
+  
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.setAttribute("href", url);
+  link.setAttribute("download", `Evolucion_Markov_${N}x${N}.csv`);
+  link.style.visibility = 'hidden';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
 }
 
 /* -------------------------------------------------------------
