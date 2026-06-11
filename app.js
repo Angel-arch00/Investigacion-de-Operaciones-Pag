@@ -1282,48 +1282,50 @@ function solveTransportModel() {
   let rowActive = Array(numS).fill(true);
   let colActive = Array(numD).fill(true);
 
-  let stepsRemaining = numS + numD - 1;
-  while (stepsRemaining > 0) {
-    // 1. Calculate row difference
-    const rowDiffs = [];
+  while (true) {
+    let hasSupply = false;
+    let hasDemand = false;
     for (let r = 0; r < numS; r++) {
-      if (!rowActive[r]) {
-        rowDiffs.push(-1);
-        continue;
-      }
-      // Find 2 lowest active costs in row r
+      if (vamSupply[r] > 0.01) hasSupply = true;
+    }
+    for (let c = 0; c < numD; c++) {
+      if (vamDemand[c] > 0.01) hasDemand = true;
+    }
+    if (!hasSupply || !hasDemand) break;
+
+    // 1. Calculate row difference
+    const rowDiffs = Array(numS).fill(-1);
+    for (let r = 0; r < numS; r++) {
+      if (!rowActive[r] || vamSupply[r] <= 0.01) continue;
       const activeRowCosts = [];
       for (let c = 0; c < numD; c++) {
-        if (colActive[c]) activeRowCosts.push({ c, cost: activeCosts[r][c] });
+        if (colActive[c] && vamDemand[c] > 0.01) {
+          activeRowCosts.push({ c, cost: activeCosts[r][c] });
+        }
       }
       activeRowCosts.sort((a, b) => a.cost - b.cost);
       if (activeRowCosts.length >= 2) {
-        rowDiffs.push(activeRowCosts[1].cost - activeRowCosts[0].cost);
+        rowDiffs[r] = activeRowCosts[1].cost - activeRowCosts[0].cost;
       } else if (activeRowCosts.length === 1) {
-        rowDiffs.push(activeRowCosts[0].cost);
-      } else {
-        rowDiffs.push(-1);
+        rowDiffs[r] = activeRowCosts[0].cost;
       }
     }
 
     // 2. Calculate col difference
-    const colDiffs = [];
+    const colDiffs = Array(numD).fill(-1);
     for (let c = 0; c < numD; c++) {
-      if (!colActive[c]) {
-        colDiffs.push(-1);
-        continue;
-      }
+      if (!colActive[c] || vamDemand[c] <= 0.01) continue;
       const activeColCosts = [];
       for (let r = 0; r < numS; r++) {
-        if (rowActive[r]) activeColCosts.push({ r, cost: activeCosts[r][c] });
+        if (rowActive[r] && vamSupply[r] > 0.01) {
+          activeColCosts.push({ r, cost: activeCosts[r][c] });
+        }
       }
       activeColCosts.sort((a, b) => a.cost - b.cost);
       if (activeColCosts.length >= 2) {
-        colDiffs.push(activeColCosts[1].cost - activeColCosts[0].cost);
+        colDiffs[c] = activeColCosts[1].cost - activeColCosts[0].cost;
       } else if (activeColCosts.length === 1) {
-        colDiffs.push(activeColCosts[0].cost);
-      } else {
-        colDiffs.push(-1);
+        colDiffs[c] = activeColCosts[0].cost;
       }
     }
 
@@ -1347,28 +1349,63 @@ function solveTransportModel() {
       }
     }
 
-    if (targetIdx === -1) break;
-
-    // In target row/col, find cell with min cost
     let pRow = -1;
     let pCol = -1;
-    let minCost = Infinity;
 
-    if (targetType === "row") {
-      pRow = targetIdx;
-      for (let c = 0; c < numD; c++) {
-        if (colActive[c] && activeCosts[pRow][c] < minCost) {
-          minCost = activeCosts[pRow][c];
-          pCol = c;
+    if (targetIdx === -1) {
+      // Fallback: Find active cell with minimum cost
+      let minCost = Infinity;
+      for (let r = 0; r < numS; r++) {
+        if (vamSupply[r] > 0.01) {
+          for (let c = 0; c < numD; c++) {
+            if (vamDemand[c] > 0.01) {
+              if (activeCosts[r][c] < minCost) {
+                minCost = activeCosts[r][c];
+                pRow = r;
+                pCol = c;
+              }
+            }
+          }
         }
       }
+      if (pRow === -1 || pCol === -1) break;
     } else {
-      pCol = targetIdx;
-      for (let r = 0; r < numS; r++) {
-        if (rowActive[r] && activeCosts[r][pCol] < minCost) {
-          minCost = activeCosts[r][pCol];
-          pRow = r;
+      let minCost = Infinity;
+      if (targetType === "row") {
+        pRow = targetIdx;
+        for (let c = 0; c < numD; c++) {
+          if (colActive[c] && vamDemand[c] > 0.01 && activeCosts[pRow][c] < minCost) {
+            minCost = activeCosts[pRow][c];
+            pCol = c;
+          }
         }
+      } else {
+        pCol = targetIdx;
+        for (let r = 0; r < numS; r++) {
+          if (rowActive[r] && vamSupply[r] > 0.01 && activeCosts[r][pCol] < minCost) {
+            minCost = activeCosts[r][pCol];
+            pRow = r;
+          }
+        }
+      }
+
+      if (pRow === -1 || pCol === -1) {
+        // Safety check fallback
+        let minCostAll = Infinity;
+        for (let r = 0; r < numS; r++) {
+          if (vamSupply[r] > 0.01) {
+            for (let c = 0; c < numD; c++) {
+              if (vamDemand[c] > 0.01) {
+                if (activeCosts[r][c] < minCostAll) {
+                  minCostAll = activeCosts[r][c];
+                  pRow = r;
+                  pCol = c;
+                }
+              }
+            }
+          }
+        }
+        if (pRow === -1 || pCol === -1) break;
       }
     }
 
@@ -1379,10 +1416,8 @@ function solveTransportModel() {
     vamDemand[pCol] -= alloc;
     vamCost += alloc * activeCosts[pRow][pCol];
 
-    if (vamSupply[pRow] === 0) rowActive[pRow] = false;
-    if (vamDemand[pCol] === 0) colActive[pCol] = false;
-    
-    stepsRemaining--;
+    if (vamSupply[pRow] <= 0.01) rowActive[pRow] = false;
+    if (vamDemand[pCol] <= 0.01) colActive[pCol] = false;
   }
 
   // Build Output HTML
