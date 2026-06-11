@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OptiFlow IO — Suite de Optimización e Investigación de Operaciones</title>
+  <meta name="description" content="Suite universitaria premium para resolver problemas de Investigación de Operaciones: Método Simplex, Gran M, Asignación Húngara, Modelos de Transporte, Inventarios (EOQ) y Cadenas de Markov con resolución paso a paso.">
+  
+  <!-- Font and Stylesheet -->
+  <link rel="stylesheet" href="styles.css">
+  
+  <!-- Favicon placeholder (inline SVG) -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 rx=%2220%22 fill=%22%23030303%22/><path d=%22M30,30 L50,70 L70,30%22 stroke=%22%2300f0ff%22 stroke-width=%228%22 fill=%22none%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22/><circle cx=%2250%22 cy=%2270%22 r=%228%22 fill=%22%23bd00ff%22/></svg>">
+</head>
+<body>
+
+  <!-- Background Animated Grid -->
+  <div class="bg-grid"></div>
+
+  <!-- Aurora Backdrop Effects -->
+  <div class="aurora-bg">
+    <div class="aurora-blur aurora-1"></div>
+    <div class="aurora-blur aurora-2"></div>
+    <div class="aurora-blur aurora-3"></div>
+  </div>
+
+  <!-- Header & Navigation -->
+  <header class="header scrolled" id="header">
+    <div class="container nav-container">
+      <a href="#" class="logo">
+        <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect width="32" height="32" rx="8" fill="url(#logo-grad)"/>
+          <path d="M9 16L14 22L23 11" stroke="#ffffff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+          <defs>
+            <linearGradient id="logo-grad" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+              <stop stop-color="#00f0ff"/>
+              <stop offset="0.5" stop-color="#0055ff"/>
+              <stop offset="1" stop-color="#bd00ff"/>
+            </linearGradient>
+          </defs>
+        </svg>
+        OptiFlow<span>.IO</span>
+      </a>
+      <ul class="nav-links" id="nav-links">
+        <li><a href="#" class="nav-tab-link" data-tab="simplex">Simplex / Gran M</a></li>
+        <li><a href="#" class="nav-tab-link" data-tab="hungarian">Método Húngaro</a></li>
+        <li><a href="#" class="nav-tab-link" data-tab="transport">Transporte</a></li>
+        <li><a href="#" class="nav-tab-link" data-tab="eoq">Inventarios (EOQ)</a></li>
+        <li><a href="#" class="nav-tab-link" data-tab="markov">Cadenas de Markov</a></li>
+      </ul>
+      <span class="nav-badge">Proyecto Universitario</span>
+      <button class="menu-toggle" id="menu-toggle" aria-label="Abrir menú de navegación">☰</button>
+    </div>
+  </header>
+
+  <!-- Hero / Introduction Section -->
+  <section class="hero-academic">
+    <div class="container">
+      <div class="hero-academic-header">
+        <div class="academic-label">Investigación de Operaciones I & II</div>
+        <h1>Suite de Optimización Matemática</h1>
+        <p>Una herramienta interactiva diseñada para resolver y analizar detalladamente modelos de optimización lineal, asignación, transporte, inventarios y análisis probabilístico.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Main Dashboard Solver Simulator -->
+  <section class="dash-preview-section" id="dashboard-preview" style="padding-top: 0; margin-top: -2rem;">
+    <div class="container">
+      <div class="dash-preview-wrapper reveal active">
+        <div class="dash-preview-header">
+          <div class="dash-dots">
+            <div class="dash-dot"></div>
+            <div class="dash-dot"></div>
+            <div class="dash-dot"></div>
+          </div>
+          <div class="dash-preview-tabs">
+            <button class="dash-preview-tab active" data-tab="simplex">Simplex & Gran M</button>
+            <button class="dash-preview-tab purple-tab" data-tab="hungarian">Método Húngaro</button>
+            <button class="dash-preview-tab" data-tab="transport">Matriz de Transporte</button>
+            <button class="dash-preview-tab purple-tab" data-tab="eoq">Inventarios (EOQ)</button>
+            <button class="dash-preview-tab" data-tab="markov">Cadenas de Markov</button>
+          </div>
+          <div style="font-family: monospace; font-size: 0.8rem; color: var(--text-gray-dark);">[resolución-paso-a-paso]</div>
+        </div>
+
+        <div class="dash-preview-window">
+          
+          <!-- Tab 1: Simplex / Gran M Solver -->
+          <div class="dash-preview-pane active" id="pane-simplex">
+            <div class="solver-layout-container">
+              <!-- Controls and inputs -->
+              <div class="solver-input-section">
+                <div class="solver-card-header">
+                  <h3>Configuración del Modelo PL</h3>
+                  <p>Define la función objetivo y las restricciones para el solver Simplex / Gran M.</p>
+                </div>
+                
+                <div class="form-row flex-row">
+                  <div class="form-group flex-1">
+                    <label>Tipo de Optimización</label>
+                    <select id="simplex-opt-type" class="solver-select">
+                      <option value="max">Maximizar Z</option>
+                      <option value="min">Minimizar Z</option>
+                    </select>
+                  </div>
+                  <div class="form-group flex-1">
+                    <label>No. de Variables</label>
+                    <select id="simplex-vars-count" class="solver-select">
+                      <option value="2" selected>2 Variables</option>
+                      <option value="3">3 Variables</option>
+                      <option value="4">4 Variables</option>
+                    </select>
+                  </div>
+                  <div class="form-group flex-1">
+                    <label>No. de Restricciones</label>
+                    <select id="simplex-const-count" class="solver-select">
+                      <option value="2" selected>2 Restricciones</option>
+                      <option value="3">3 Restricciones</option>
+                      <option value="4">4 Restricciones</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="divider"></div>
+
+                <!-- Objective Function Inputs -->
+                <div class="form-group">
+                  <label>Función Objetivo (Coeficientes)</label>
+                  <div class="coefficients-row" id="simplex-obj-row">
+                    <!-- Dynamic variable cells: Z = [ c1 ] x1 + [ c2 ] x2 -->
+                  </div>
+                </div>
+
+                <!-- Constraints Inputs -->
+                <div class="form-group">
+                  <label>Restricciones del Sistema</label>
+                  <div class="constraints-container" id="simplex-constraints-container">
+                    <!-- Dynamic constraint rows -->
+                  </div>
+                </div>
+
+                <div class="non-negativity-label">
+                  Condición de no negatividad: <code>x₁, x₂,... ≥ 0</code>
+                </div>
+
+                <button id="btn-solve-simplex" class="btn btn-primary btn-solver-action">
+                  Resolver con Simplex / Gran M →
+                </button>
+              </div>
+
+              <!-- Results Area -->
+              <div class="solver-output-section" id="simplex-output-area">
+                <div class="solver-empty-state">
+                  <div class="empty-state-icon">📈</div>
+                  <h4>Esperando Datos del Modelo</h4>
+                  <p>Rellena los coeficientes en el panel de la izquierda y haz clic en "Resolver" para generar las tablas de iteración Simplex/Gran M.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Tab 2: Hungarian Method Solver -->
+          <div class="dash-preview-pane" id="pane-hungarian">
+            <div class="solver-layout-container">
+              <!-- Inputs -->
+              <div class="solver-input-section">
+                <div class="solver-card-header">
+                  <h3>Modelo de Asignación (Método Húngaro)</h3>
+                  <p>Resuelve el emparejamiento óptimo de tareas y recursos con una matriz de costos cuadrada.</p>
+                </div>
+
+                <div class="form-row flex-row">
+                  <div class="form-group flex-1">
+                    <label>Objetivo</label>
+                    <select id="hungarian-opt-type" class="solver-select">
+                      <option value="min">Minimizar Costo</option>
+                      <option value="max">Maximizar Rendimiento</option>
+                    </select>
+                  </div>
+                  <div class="form-group flex-1">
+                    <label>Dimensión (NxN)</label>
+                    <select id="hungarian-size" class="solver-select">
+                      <option value="3" selected>3 x 3 (3 Tareas)</option>
+                      <option value="4">4 x 4 (4 Tareas)</option>
+                      <option value="5">5 x 5 (5 Tareas)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="divider"></div>
+
+                <div class="form-group">
+                  <label>Matriz de Costos / Tiempos</label>
+                  <div class="matrix-input-wrapper" id="hungarian-matrix-container">
+                    <!-- Dynamic matrix inputs -->
+                  </div>
+                </div>
+
+                <button id="btn-solve-hungarian" class="btn btn-primary btn-solver-action purple-btn">
+                  Resolver Asignación →
+                </button>
+              </div>
+
+              <!-- Outputs -->
+              <div class="solver-output-section" id="hungarian-output-area">
+                <div class="solver-empty-state">
+                  <div class="empty-state-icon">88</div>
+                  <h4>Esperando Matriz de Costos</h4>
+                  <p>Define la dimensión de tu problema de asignación y presiona "Resolver" para observar las matrices reducidas y la asignación final.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tab 3: Transportation Matrix Solver -->
+          <div class="dash-preview-pane" id="pane-transport">
+            <div class="solver-layout-container">
+              <!-- Inputs -->
+              <div class="solver-input-section">
+                <div class="solver-card-header">
+                  <h3>Problema de Transporte</h3>
+                  <p>Configura la matriz de orígenes y destinos para evaluar las soluciones logísticas.</p>
+                </div>
+
+                <div class="form-row flex-row">
+                  <div class="form-group flex-1">
+                    <label>Orígenes (Oferta)</label>
+                    <select id="transport-sources" class="solver-select">
+                      <option value="2">2 Orígenes</option>
+                      <option value="3" selected>3 Orígenes</option>
+                    </select>
+                  </div>
+                  <div class="form-group flex-1">
+                    <label>Destinos (Demanda)</label>
+                    <select id="transport-destinations" class="solver-select">
+                      <option value="3" selected>3 Destinos</option>
+                      <option value="4">4 Destinos</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="divider"></div>
+
+                <div class="form-group">
+                  <label>Matriz de Costos, Oferta y Demanda</label>
+                  <div class="matrix-input-wrapper scrollable-matrix" id="transport-matrix-container">
+                    <!-- Dynamic transportation grid inputs -->
+                  </div>
+                </div>
+
+                <button id="btn-solve-transport" class="btn btn-primary btn-solver-action">
+                  Resolver Transporte →
+                </button>
+              </div>
+
+              <!-- Outputs -->
+              <div class="solver-output-section" id="transport-output-area">
+                <div class="solver-empty-state">
+                  <div class="empty-state-icon">🚚</div>
+                  <h4>Esperando Datos de Distribución</h4>
+                  <p>Configura los costos de envío unitarios, la oferta y la demanda, luego haz clic en "Resolver" para comparar Esquina Noroeste, Costo Mínimo y Vogel.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tab 4: EOQ Inventory Solver -->
+          <div class="dash-preview-pane" id="pane-eoq">
+            <div class="eoq-grid-container solver-layout-container" style="display: grid; grid-template-columns: 350px 1fr; gap: 1.5rem; text-align: left;">
+              
+              <!-- EOQ Inputs -->
+              <div class="solver-input-section" style="background: transparent; padding: 0; border: none; box-shadow: none;">
+                <div class="solver-card-header">
+                  <h3>Modelo de Inventario EOQ</h3>
+                  <p>Introduce las variables de inventario para calcular la cantidad económica óptima de pedido (Fórmulas clásicas).</p>
+                </div>
+
+                <div class="form-group">
+                  <label>Demanda Anual (D)</label>
+                  <div class="eoq-input-unit-wrapper">
+                    <input type="number" id="eoq-in-D" value="1000" class="solver-input">
+                    <span class="input-unit">u/año</span>
+                  </div>
+                </div>
+
+                <div class="form-group">
+                  <label>Costo por Pedido (S)</label>
+                  <div class="eoq-input-unit-wrapper">
+                    <input type="number" id="eoq-in-S" value="50" class="solver-input">
+                    <span class="input-unit">$/pedido</span>
+                  </div>
+                </div>
+
+                <div class="form-group">
+                  <label>Costo de Mantenimiento (H)</label>
+                  <div class="eoq-input-unit-wrapper">
+                    <input type="number" id="eoq-in-H" value="5" class="solver-input">
+                    <span class="input-unit">$/u/año</span>
+                  </div>
+                </div>
+
+                <div class="form-group">
+                  <label>Tiempo de Entrega (L)</label>
+                  <div class="eoq-input-unit-wrapper">
+                    <input type="number" id="eoq-in-L" value="7" class="solver-input">
+                    <span class="input-unit">días</span>
+                  </div>
+                </div>
+
+                <button id="btn-calculate-eoq" class="btn btn-primary btn-solver-action purple-btn" style="margin-top: 1rem; width: 100%;">
+                  Calcular Modelo EOQ →
+                </button>
+              </div>
+
+              <!-- EOQ Formulas & Graph -->
+              <div class="eoq-results-wrapper" style="display: flex; flex-direction: column; gap: 1rem;">
+                <div class="eoq-split-results" style="display: grid; grid-template-columns: 1fr 1.2fr; gap: 1rem; flex: 1;">
+                  
+                  <!-- Step-by-step Formulas output -->
+                  <div class="eoq-formulas-card" id="eoq-formulas-output" style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-light); border-radius: 10px; padding: 1.2rem; display: flex; flex-direction: column; gap: 0.8rem; overflow-y: auto;">
+                    <h4 style="color: var(--primary-cyan); font-size: 0.95rem; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 0.5rem; margin-bottom: 0.2rem;">FÓRMULAS APLICADAS</h4>
+                    
+                    <div class="formula-item">
+                      <div class="formula-lbl">1. Lote Óptimo de Pedido (EOQ):</div>
+                      <code class="formula-code">EOQ = √ ( 2·D·S / H )</code>
+                      <div class="formula-calc" id="f-calc-eoq">EOQ = √ ( 2 · 1000 · 50 / 5 ) = 141.42 u</div>
+                    </div>
+
+                    <div class="formula-item">
+                      <div class="formula-lbl">2. Número de Pedidos / Año (N):</div>
+                      <code class="formula-code">N = D / EOQ</code>
+                      <div class="formula-calc" id="f-calc-n">N = 1000 / 141.42 = 7.07 pedidos</div>
+                    </div>
+
+                    <div class="formula-item">
+                      <div class="formula-lbl">3. Tiempo entre Pedidos (T):</div>
+                      <code class="formula-code">T = 365 / N</code>
+                      <div class="formula-calc" id="f-calc-t">T = 365 / 7.07 = 51.61 días</div>
+                    </div>
+
+                    <div class="formula-item">
+                      <div class="formula-lbl">4. Costo Total Anual (TC):</div>
+                      <code class="formula-code">TC = (D/EOQ)·S + (EOQ/2)·H</code>
+                      <div class="formula-calc" id="f-calc-tc">TC = 707.11 + 353.55 = $707.11</div>
+                    </div>
+
+                    <div class="formula-item">
+                      <div class="formula-lbl">5. Punto de Reorden (ROP):</div>
+                      <code class="formula-code">ROP = (D / 365) · L</code>
+                      <div class="formula-calc" id="f-calc-rop">ROP = (1000 / 365) · 7 = 19.18 u</div>
+                    </div>
+                  </div>
+
+                  <!-- EOQ graph box -->
+                  <div class="eoq-chart-box" style="height: 100%; min-height: 250px; display: flex; flex-direction: column; background: rgba(255,255,255,0.01);">
+                    <div class="eoq-chart-title" style="font-size: 0.85rem; padding: 0.5rem; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                      Curva de Costos de Inventario (Gráfica)
+                      <div class="eoq-chart-legends" style="margin-top: 0.25rem; font-size: 0.7rem;">
+                        <div class="eoq-legend"><span class="legend-total"></span>Costo Total</div>
+                        <div class="eoq-legend"><span class="legend-order"></span>Almacén (H)</div>
+                        <div class="eoq-legend"><span class="legend-hold"></span>Pedido (S)</div>
+                      </div>
+                    </div>
+                    <div style="flex: 1; position: relative; padding: 0.5rem;">
+                      <canvas id="live-eoq-canvas" style="width: 100%; height: 100%;"></canvas>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Summary statistics row -->
+                <div class="eoq-metrics" style="grid-template-columns: repeat(5, 1fr); margin-top: 0.5rem;">
+                  <div class="eoq-metric-box">
+                    <div class="eoq-metric-lbl">Lote Óptimo (Q*)</div>
+                    <div class="eoq-metric-num" id="res-eoq-q">141 u</div>
+                  </div>
+                  <div class="eoq-metric-box">
+                    <div class="eoq-metric-lbl">Pedidos al Año</div>
+                    <div class="eoq-metric-num" id="res-eoq-n">7.1</div>
+                  </div>
+                  <div class="eoq-metric-box">
+                    <div class="eoq-metric-lbl">Tiempo Reabasto</div>
+                    <div class="eoq-metric-num" id="res-eoq-t">52 días</div>
+                  </div>
+                  <div class="eoq-metric-box">
+                    <div class="eoq-metric-lbl">Punto de Reorden</div>
+                    <div class="eoq-metric-num" id="res-eoq-rop">19.2 u</div>
+                  </div>
+                  <div class="eoq-metric-box">
+                    <div class="eoq-metric-lbl">Costo Mínimo Total</div>
+                    <div class="eoq-metric-num" id="res-eoq-tc">$707</div>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- Tab 5: Markov Transitions Solver -->
+          <div class="dash-preview-pane" id="pane-markov">
+            <div class="markov-grid-container solver-layout-container" style="display: grid; grid-template-columns: 380px 1fr; gap: 1.5rem; text-align: left;">
+              <div class="markov-inputs">
+                <div class="markov-matrix-box" style="margin-bottom: 1rem;">
+                  <div class="simplex-log-title" style="margin-bottom: 0.5rem;">Matriz de Transición P (3×3)</div>
+                  <div style="font-size: 0.75rem; color: var(--text-gray-dark); margin-bottom: 1rem;">
+                    Ingresa probabilidades de transición de un estado a otro (las filas deben sumar 1.0):
+                  </div>
+                  <div class="markov-matrix-grid">
+                    <input type="number" id="m00" value="0.7" step="0.05" min="0" max="1" class="solver-input">
+                    <input type="number" id="m01" value="0.2" step="0.05" min="0" max="1" class="solver-input">
+                    <input type="number" id="m02" value="0.1" step="0.05" min="0" max="1" class="solver-input">
+                    
+                    <input type="number" id="m10" value="0.3" step="0.05" min="0" max="1" class="solver-input">
+                    <input type="number" id="m11" value="0.5" step="0.05" min="0" max="1" class="solver-input">
+                    <input type="number" id="m12" value="0.2" step="0.05" min="0" max="1" class="solver-input">
+                    
+                    <input type="number" id="m20" value="0.2" step="0.05" min="0" max="1" class="solver-input">
+                    <input type="number" id="m21" value="0.2" step="0.05" min="0" max="1" class="solver-input">
+                    <input type="number" id="m22" value="0.6" step="0.05" min="0" max="1" class="solver-input">
+                  </div>
+                </div>
+                
+                <button id="btn-solve-markov" class="btn btn-primary btn-solver-action" style="width: 100%; margin-bottom: 1rem;">
+                  Calcular Estado Estable →
+                </button>
+
+                <div class="simplex-interpretation" style="margin-top: 0.5rem; background: rgba(0,240,255,0.02); border-color: var(--primary-cyan);">
+                  <strong>💡 Estado Estable de Markov:</strong><br>
+                  Los estados de probabilidad a largo plazo convergen en:<br>
+                  <div id="markov-steady-output" style="margin-top: 0.5rem; font-family: monospace; font-size: 0.85rem; color: var(--text-white);">
+                    π₁ = 49.3%, π₂ = 28.2%, π₃ = 22.5%
+                  </div>
+                </div>
+              </div>
+              
+              <div class="markov-viz" style="display: flex; flex-direction: column; justify-content: center; align-items: center; border: 1px solid var(--border-light); border-radius: 10px; background: rgba(0,0,0,0.2); position: relative; min-height: 300px;">
+                <div style="position: absolute; top: 10px; left: 10px; font-size: 0.75rem; color: var(--text-gray-muted);">Grafo de Transición Dinámico</div>
+                <svg viewBox="0 0 400 300" width="100%" height="100%" id="markov-svg">
+                  <!-- Connection Curves -->
+                  <path d="M 100 100 Q 200 60 300 100" stroke="rgba(255,255,255,0.08)" stroke-width="2" fill="none" id="path-0-1"/>
+                  <path d="M 300 100 Q 200 140 100 100" stroke="rgba(255,255,255,0.08)" stroke-width="2" fill="none" id="path-1-0"/>
+                  
+                  <path d="M 300 100 Q 330 200 200 240" stroke="rgba(255,255,255,0.08)" stroke-width="2" fill="none" id="path-1-2"/>
+                  <path d="M 200 240 Q 130 180 300 100" stroke="rgba(255,255,255,0.08)" stroke-width="2" fill="none" id="path-2-1"/>
+                  
+                  <path d="M 200 240 Q 100 200 100 100" stroke="rgba(255,255,255,0.08)" stroke-width="2" fill="none" id="path-2-0"/>
+                  <path d="M 100 100 Q 80 180 200 240" stroke="rgba(255,255,255,0.08)" stroke-width="2" fill="none" id="path-0-2"/>
+
+                  <!-- Self Loops -->
+                  <path d="M 100 100 C 50 50, 50 150, 100 100" stroke="rgba(255,255,255,0.08)" stroke-width="2" fill="none" id="path-0-0"/>
+                  <path d="M 300 100 C 350 50, 350 150, 300 100" stroke="rgba(255,255,255,0.08)" stroke-width="2" fill="none" id="path-1-1"/>
+                  <path d="M 200 240 C 250 300, 150 300, 200 240" stroke="rgba(255,255,255,0.08)" stroke-width="2" fill="none" id="path-2-2"/>
+
+                  <!-- Nodes -->
+                  <circle cx="100" cy="100" r="28" fill="#08080c" stroke="#00f0ff" stroke-width="3" id="node-0" />
+                  <circle cx="300" cy="100" r="28" fill="#08080c" stroke="#bd00ff" stroke-width="3" id="node-1" />
+                  <circle cx="200" cy="240" r="28" fill="#08080c" stroke="#0055ff" stroke-width="3" id="node-2" />
+
+                  <!-- Text Labels inside nodes -->
+                  <text x="100" y="105" text-anchor="middle" class="markov-node-label">S₁</text>
+                  <text x="300" y="105" text-anchor="middle" class="markov-node-label">S₂</text>
+                  <text x="200" y="245" text-anchor="middle" class="markov-node-label">S₃</text>
+
+                  <!-- Animated Flow Particles -->
+                  <circle r="4" class="markov-flow-dot" id="p-dot-1"><animateMotion dur="4s" repeatCount="indefinite" path="M 100 100 Q 200 60 300 100" /></circle>
+                  <circle r="4" class="markov-flow-dot" id="p-dot-2"><animateMotion dur="5s" repeatCount="indefinite" path="M 300 100 Q 200 140 100 100" /></circle>
+                  <circle r="4" class="markov-flow-dot" id="p-dot-3"><animateMotion dur="3s" repeatCount="indefinite" path="M 200 240 Q 130 180 300 100" /></circle>
+                  <circle r="4" class="markov-flow-dot" id="p-dot-4"><animateMotion dur="6s" repeatCount="indefinite" path="M 100 100 Q 80 180 200 240" /></circle>
+                </svg>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer Section -->
+  <footer class="footer" style="padding: 3rem 0; border-top: 1px solid var(--border-light); background: rgba(5,5,8,0.85); position: relative; z-index: 10;">
+    <div class="container">
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1.5rem;">
+        <div class="logo">
+          <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" style="width:24px; height:24px;">
+            <rect width="32" height="32" rx="8" fill="url(#logo-grad-foot)"/>
+            <path d="M9 16L14 22L23 11" stroke="#ffffff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+            <defs>
+              <linearGradient id="logo-grad-foot" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#00f0ff"/>
+                <stop offset="0.5" stop-color="#0055ff"/>
+                <stop offset="1" stop-color="#bd00ff"/>
+              </linearGradient>
+            </defs>
+          </svg>
+          OptiFlow<span>.IO</span>
+        </div>
+        <div style="font-size: 0.85rem; color: var(--text-gray-dark);">
+          Proyecto Académico de Investigación de Operaciones. Universidad Tecnológica. © 2026.
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

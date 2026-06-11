@@ -1,0 +1,1619 @@
+/* -------------------------------------------------------------
+   OptiFlow IO - Academic Operations Research Solver Suite
+   ------------------------------------------------------------- */
+
+document.addEventListener('DOMContentLoaded', () => {
+  initNavbar();
+  initDashboardTabs();
+  
+  // Initialize dynamic forms
+  initSimplexForm();
+  initHungarianForm();
+  initTransportForm();
+  
+  // Bind Solver buttons
+  document.getElementById('btn-solve-simplex').addEventListener('click', solveSimplexModel);
+  document.getElementById('btn-solve-hungarian').addEventListener('click', solveHungarianModel);
+  document.getElementById('btn-solve-transport').addEventListener('click', solveTransportModel);
+  document.getElementById('btn-calculate-eoq').addEventListener('click', solveEoqModel);
+  document.getElementById('btn-solve-markov').addEventListener('click', solveMarkovModel);
+
+  // EOQ auto recalculate once
+  solveEoqModel();
+  // Markov auto recalculate once
+  solveMarkovModel();
+});
+
+/* -------------------------------------------------------------
+   Fraction formatting helper (Continued Fractions Algorithm)
+   ------------------------------------------------------------- */
+function formatNumber(val, maxDenominator = 1000) {
+  if (Math.abs(val) < 1e-9) return '0';
+  if (Math.abs(val - Math.round(val)) < 1e-9) return Math.round(val).toString();
+  
+  const tolerance = 1e-6;
+  const isNegative = val < 0;
+  const absVal = Math.abs(val);
+  
+  let h1 = 1, h2 = 0, k1 = 0, k2 = 1;
+  let b = absVal;
+  do {
+    let a = Math.floor(b);
+    let aux = h1; h1 = a * h1 + h2; h2 = aux;
+    aux = k1; k1 = a * k1 + k2; k2 = aux;
+    b = 1 / (b - a);
+  } while (Math.abs(absVal - h1 / k1) > tolerance && k1 < maxDenominator);
+  
+  if (k1 < maxDenominator && Math.abs(absVal - h1 / k1) < tolerance) {
+    if (k1 === 1) return (isNegative ? '-' : '') + h1.toString();
+    return (isNegative ? '-' : '') + `${h1}/${k1}`;
+  }
+  return val.toFixed(2);
+}
+
+/* -------------------------------------------------------------
+   Big M exact number class [Real Part, M Coefficient Part]
+   ------------------------------------------------------------- */
+class BigM {
+  constructor(r = 0, m = 0) {
+    this.r = r;
+    this.m = m;
+  }
+  add(o) { return new BigM(this.r + o.r, this.m + o.m); }
+  sub(o) { return new BigM(this.r - o.r, this.m - o.m); }
+  mul(scalar) { return new BigM(this.r * scalar, this.m * scalar); }
+  div(scalar) { return new BigM(this.r / scalar, this.m / scalar); }
+  neg() { return new BigM(-this.r, -this.m); }
+  
+  // Z-row optimality check comparison: most negative enters
+  lt(o) {
+    if (Math.abs(this.m - o.m) > 1e-9) {
+      return this.m < o.m;
+    }
+    return this.r < o.r;
+  }
+  
+  isZero() {
+    return Math.abs(this.r) < 1e-9 && Math.abs(this.m) < 1e-9;
+  }
+  
+  toString() {
+    if (Math.abs(this.m) < 1e-9) return formatNumber(this.r);
+    
+    let mStr = "";
+    if (Math.abs(this.m - 1) < 1e-9) mStr = "M";
+    else if (Math.abs(this.m + 1) < 1e-9) mStr = "-M";
+    else mStr = `${formatNumber(this.m)}M`;
+    
+    if (Math.abs(this.r) < 1e-9) return mStr;
+    
+    if (this.r > 0) {
+      return `${mStr} + ${formatNumber(this.r)}`;
+    } else {
+      return `${mStr} - ${formatNumber(Math.abs(this.r))}`;
+    }
+  }
+}
+
+/* -------------------------------------------------------------
+   1. Navbar Scroll & Dynamic Tab Binding
+   ------------------------------------------------------------- */
+function initNavbar() {
+  const header = document.getElementById('header');
+  const menuToggle = document.getElementById('menu-toggle');
+  const navLinks = document.getElementById('nav-links');
+
+  // Change navbar appearance on scroll
+  window.addEventListener('scroll', () => {
+    if (window.scrollY > 50) {
+      header.classList.add('scrolled');
+    } else {
+      header.classList.add('scrolled'); // Force scrolled background in solver dashboard
+    }
+  });
+
+  // Mobile menu toggle
+  if (menuToggle && navLinks) {
+    menuToggle.addEventListener('click', () => {
+      navLinks.classList.toggle('active');
+      menuToggle.textContent = navLinks.classList.contains('active') ? '✕' : '☰';
+    });
+  }
+
+  // Bind links to tab switching
+  document.querySelectorAll('.nav-tab-link').forEach(link => {
+    link.addEventListener('click', (e) => {
+      e.preventDefault();
+      const tabTarget = link.getAttribute('data-tab');
+      const targetTabButton = document.querySelector(`.dash-preview-tab[data-tab="${tabTarget}"]`);
+      
+      if (targetTabButton) {
+        targetTabButton.click();
+        const section = document.getElementById('dashboard-preview');
+        if (section) {
+          section.scrollIntoView({ behavior: 'smooth' });
+        }
+      }
+      if (navLinks) {
+        navLinks.classList.remove('active');
+        if (menuToggle) menuToggle.textContent = '☰';
+      }
+    });
+  });
+}
+
+function initDashboardTabs() {
+  const tabs = document.querySelectorAll('.dash-preview-tab');
+  const panes = document.querySelectorAll('.dash-preview-pane');
+  
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      const target = tab.getAttribute('data-tab');
+      
+      tabs.forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      
+      panes.forEach(pane => {
+        pane.classList.remove('active');
+        if (pane.id === `pane-${target}`) {
+          pane.classList.add('active');
+        }
+      });
+      
+      if (target === 'eoq') {
+        setTimeout(solveEoqModel, 100);
+      }
+    });
+  });
+}
+
+/* -------------------------------------------------------------
+   2. SIMPLEX & GRAN M SOLVER SYSTEM
+   ------------------------------------------------------------- */
+function initSimplexForm() {
+  const selectVars = document.getElementById('simplex-vars-count');
+  const selectConst = document.getElementById('simplex-const-count');
+  
+  if (!selectVars || !selectConst) return;
+
+  const rebuild = () => {
+    const numVars = parseInt(selectVars.value);
+    const numConst = parseInt(selectConst.value);
+    
+    // Generate Objective Row
+    const objRow = document.getElementById('simplex-obj-row');
+    objRow.innerHTML = '';
+    const objLabel = document.createElement('span');
+    objLabel.className = 'var-term';
+    objLabel.innerHTML = 'Z = &nbsp;';
+    objRow.appendChild(objLabel);
+
+    for (let j = 1; j <= numVars; j++) {
+      const cell = document.createElement('div');
+      cell.className = 'coeff-cell';
+      cell.innerHTML = `
+        <input type="number" id="simplex-c-${j}" value="${j === 1 ? 3 : 5}" class="solver-input">
+        <span class="var-term">x<sub>${j}</sub></span>
+        ${j < numVars ? '<span class="var-term">&nbsp;+&nbsp;</span>' : ''}
+      `;
+      objRow.appendChild(cell);
+    }
+
+    // Generate Constraints
+    const constContainer = document.getElementById('simplex-constraints-container');
+    constContainer.innerHTML = '';
+
+    for (let i = 1; i <= numConst; i++) {
+      const row = document.createElement('div');
+      row.className = 'constraint-row';
+      
+      let varsHTML = '';
+      for (let j = 1; j <= numVars; j++) {
+        // Default values for coefficients
+        let defaultVal = 1;
+        if (i === 1 && j === 1) defaultVal = 1;
+        else if (i === 1 && j === 2) defaultVal = 0; // x1 <= 4
+        else if (i === 2 && j === 1) defaultVal = 0;
+        else if (i === 2 && j === 2) defaultVal = 2; // 2x2 <= 12
+        else if (i === 3 && j === 1) defaultVal = 3;
+        else if (i === 3 && j === 2) defaultVal = 2; // 3x1 + 2x2 <= 18
+
+        varsHTML += `
+          <div class="coeff-cell">
+            <input type="number" id="simplex-a-${i}-${j}" value="${defaultVal}" class="solver-input">
+            <span class="var-term">x<sub>${j}</sub></span>
+            ${j < numVars ? '<span class="var-term">&nbsp;+&nbsp;</span>' : ''}
+          </div>
+        `;
+      }
+
+      // Default RHS values
+      let defaultRHS = 10;
+      if (i === 1) defaultRHS = 4;
+      else if (i === 2) defaultRHS = 12;
+      else if (i === 3) defaultRHS = 18;
+
+      row.innerHTML = `
+        <span class="var-term" style="margin-right:0.5rem; color: var(--text-gray-dark);">[${i}]</span>
+        ${varsHTML}
+        <select id="simplex-sign-${i}" class="solver-select constraint-sign">
+          <option value="<=" selected>&le;</option>
+          <option value=">=">&ge;</option>
+          <option value="=">=</option>
+        </select>
+        <input type="number" id="simplex-rhs-${i}" value="${defaultRHS}" class="solver-input" style="width: 60px; text-align:center; padding:0;">
+      `;
+      constContainer.appendChild(row);
+    }
+  };
+
+  selectVars.addEventListener('change', rebuild);
+  selectConst.addEventListener('change', rebuild);
+  rebuild();
+}
+
+function solveSimplexModel() {
+  const optType = document.getElementById('simplex-opt-type').value;
+  const numVars = parseInt(document.getElementById('simplex-vars-count').value);
+  const numConst = parseInt(document.getElementById('simplex-const-count').value);
+  const output = document.getElementById('simplex-output-area');
+  
+  output.innerHTML = '<h3 style="color: var(--primary-cyan); margin-bottom:1rem;">Ejecutando algoritmo...</h3>';
+
+  // Read objective coefficients
+  const c = [];
+  for (let j = 1; j <= numVars; j++) {
+    c.push(parseFloat(document.getElementById(`simplex-c-${j}`).value) || 0);
+  }
+
+  // Read constraints coefficients
+  const A = [];
+  const signs = [];
+  const b = [];
+  for (let i = 1; i <= numConst; i++) {
+    const row = [];
+    for (let j = 1; j <= numVars; j++) {
+      row.push(parseFloat(document.getElementById(`simplex-a-${i}-${j}`).value) || 0);
+    }
+    A.push(row);
+    signs.push(document.getElementById(`simplex-sign-${i}`).value);
+    b.push(parseFloat(document.getElementById(`simplex-rhs-${i}`).value) || 0);
+  }
+
+  // PRE-PROCESSING: RHS must be >= 0
+  for (let i = 0; i < numConst; i++) {
+    if (b[i] < 0) {
+      b[i] = -b[i];
+      for (let j = 0; j < numVars; j++) {
+        A[i][j] = -A[i][j];
+      }
+      if (signs[i] === '<=') signs[i] = '>=';
+      else if (signs[i] === '>=') signs[i] = '<=';
+    }
+  }
+
+  // Count slacks, surplus, artificial variables
+  let numSlacks = 0;
+  let numSurplus = 0;
+  let numArtificials = 0;
+  
+  // Track which row gets what variable
+  const constraintVars = []; // Array of info: { type, index, col }
+  for (let i = 0; i < numConst; i++) {
+    if (signs[i] === '<=') {
+      numSlacks++;
+    } else if (signs[i] === '>=') {
+      numSurplus++;
+      numArtificials++;
+    } else if (signs[i] === '=') {
+      numArtificials++;
+    }
+  }
+
+  // Columns definition:
+  // x_1 .. x_numVars | s_1 .. s_numSlacks | e_1 .. s_numSurplus | a_1 .. a_numArtificials | RHS
+  const colNames = [];
+  for (let j = 1; j <= numVars; j++) colNames.push(`x${j}`);
+  for (let j = 1; j <= numSlacks; j++) colNames.push(`s${j}`);
+  for (let j = 1; j <= numSurplus; j++) colNames.push(`e${j}`);
+  for (let j = 1; j <= numArtificials; j++) colNames.push(`a${j}`);
+  colNames.push('RHS');
+
+  const totalCols = colNames.length - 1; // RHS is last, exclude it from active size
+  const rhsCol = totalCols;
+
+  // Matrix allocation
+  // Rows: 0 .. numConst-1 are constraints. Row numConst is the Z-row.
+  const tableau = [];
+  for (let i = 0; i <= numConst; i++) {
+    const row = [];
+    for (let j = 0; j <= totalCols; j++) {
+      row.push(new BigM(0, 0));
+    }
+    tableau.push(row);
+  }
+
+  // Setup constraints in tableau
+  let curSlack = 0;
+  let curSurplus = 0;
+  let curArt = 0;
+  const initialBasis = []; // Track basic variable name for each constraint row
+
+  for (let i = 0; i < numConst; i++) {
+    // Decision variables
+    for (let j = 0; j < numVars; j++) {
+      tableau[i][j] = new BigM(A[i][j], 0);
+    }
+    
+    // RHS
+    tableau[i][rhsCol] = new BigM(b[i], 0);
+
+    // Slack, Surplus, Artificial columns offsets
+    const slackOffset = numVars;
+    const surplusOffset = numVars + numSlacks;
+    const artOffset = numVars + numSlacks + numSurplus;
+
+    if (signs[i] === '<=') {
+      tableau[i][slackOffset + curSlack] = new BigM(1, 0);
+      initialBasis.push(`s${curSlack + 1}`);
+      curSlack++;
+    } else if (signs[i] === '>=') {
+      tableau[i][surplusOffset + curSurplus] = new BigM(-1, 0);
+      tableau[i][artOffset + curArt] = new BigM(1, 0);
+      initialBasis.push(`a${curArt + 1}`);
+      curSurplus++;
+      curArt++;
+    } else if (signs[i] === '=') {
+      tableau[i][artOffset + curArt] = new BigM(1, 0);
+      initialBasis.push(`a${curArt + 1}`);
+      curArt++;
+    }
+  }
+
+  // Setup Z-row (Cost Row)
+  // Maximize Z' = Sum( -c_j * x_j ) initially for maximize, or negate coefficients for minimize.
+  const scale = (optType === 'max') ? 1 : -1;
+  
+  for (let j = 0; j < numVars; j++) {
+    tableau[numConst][j] = new BigM(-c[j] * scale, 0);
+  }
+
+  // Artificial penalty in Z-row
+  // If maximizing Z', we subtract M * a_i (since standard maximizes). So equation Z' + M*a = 0, Z-row coefficient is +M.
+  const artOffset = numVars + numSlacks + numSurplus;
+  for (let j = 0; j < numArtificials; j++) {
+    tableau[numConst][artOffset + j] = new BigM(0, 1); // +1 * M
+  }
+
+  // Standard form HTML
+  let stdHTML = `<div class="iteration-tableau-card" style="border-color: var(--border-active);">
+    <h4 style="color: var(--primary-cyan); font-size: 0.95rem; margin-bottom: 0.5rem;">Forma Estándar (PL)</h4>
+    <p style="font-size:0.8rem; color: var(--text-gray-muted); margin-bottom:0.8rem;">
+      Se introducen variables de holgura ($s_i$), exceso ($e_i$) y artificiales ($a_i$).
+    </p>
+    <div style="font-family: monospace; font-size: 0.85rem; line-height: 1.5; padding: 0.8rem; background: rgba(0,0,0,0.3); border-radius: 6px;">
+      <strong>Objetivo:</strong> ${optType === 'max' ? 'Max' : 'Min'} Z = `;
+  
+  for (let j = 0; j < numVars; j++) {
+    stdHTML += `${c[j]}x<sub>${j+1}</sub> ${j < numVars - 1 ? '+ ' : ''}`;
+  }
+  if (numArtificials > 0) {
+    stdHTML += ` - M(`;
+    for (let k = 1; k <= numArtificials; k++) {
+      stdHTML += `a<sub>${k}</sub>${k < numArtificials ? '+' : ''}`;
+    }
+    stdHTML += `)`;
+  }
+  stdHTML += `<br><strong>Restricciones:</strong><br>`;
+  for (let i = 0; i < numConst; i++) {
+    let constStr = "";
+    for (let j = 0; j < numVars; j++) {
+      constStr += `${A[i][j]}x<sub>${j+1}</sub> + `;
+    }
+    // Remove extra +
+    constStr = constStr.substring(0, constStr.length - 2);
+    // Add slacks, etc.
+    let count = 0;
+    if (signs[i] === '<=') {
+      constStr += `+ s<sub>${i+1}</sub>`;
+    } else if (signs[i] === '>=') {
+      constStr += `- e<sub>${curSurplus}</sub> + a<sub>${curArt}</sub>`;
+    } else if (signs[i] === '=') {
+      constStr += `+ a<sub>${curArt}</sub>`;
+    }
+    constStr += ` = ${b[i]}`;
+    stdHTML += `&nbsp;&nbsp;[${i+1}] ${constStr}<br>`;
+  }
+  stdHTML += `</div></div>`;
+
+  // ELIMINATION OF ARTIFICIAL VARIABLES FROM Z-ROW
+  // We must make initial basic Z-row coefficients of artificial variables zero.
+  // Z_row = Z_row - M * row_i
+  for (let i = 0; i < numConst; i++) {
+    if (signs[i] === '>=' || signs[i] === '=') {
+      // Subtract M * Row_i
+      for (let j = 0; j <= rhsCol; j++) {
+        // row_i[j] * M
+        const penaltyVal = new BigM(0, tableau[i][j].r);
+        tableau[numConst][j] = tableau[numConst][j].sub(penaltyVal);
+      }
+    }
+  }
+
+  // Iterate Simplex
+  const iterationsLog = [];
+  let currentBasis = [...initialBasis];
+  let solved = false;
+  let iterations = 0;
+  const maxIterations = 20;
+
+  // Record iteration 0 (Initial Tableau)
+  recordIteration(tableau, colNames, currentBasis, numConst, rhsCol, "Tabla Inicial (Mapeo Estándar)", iterationsLog);
+
+  while (!solved && iterations < maxIterations) {
+    // 1. Find Entering Variable (most negative column in Z-row)
+    let enteringCol = -1;
+    let minCoeff = new BigM(0, 0);
+
+    for (let j = 0; j < rhsCol; j++) {
+      if (tableau[numConst][j].lt(minCoeff)) {
+        minCoeff = tableau[numConst][j];
+        enteringCol = j;
+      }
+    }
+
+    // If no negative coefficients, we are optimal
+    if (enteringCol === -1) {
+      solved = true;
+      break;
+    }
+
+    // 2. Find Leaving Variable (Minimum ratio RHS / pivot_coeff for pivot_coeff > 0)
+    let leavingRow = -1;
+    let minRatio = Infinity;
+
+    for (let i = 0; i < numConst; i++) {
+      const val = tableau[i][enteringCol].r;
+      if (val > 1e-9) {
+        const rhsVal = tableau[i][rhsCol].r;
+        const ratio = rhsVal / val;
+        if (ratio < minRatio) {
+          minRatio = ratio;
+          leavingRow = i;
+        }
+      }
+    }
+
+    if (leavingRow === -1) {
+      // Unbounded solution
+      output.innerHTML = stdHTML + `
+        <div class="optimal-solution-card" style="border-color: #ff5f56; background: rgba(255,95,86,0.05);">
+          <h4 style="color:#ff5f56;">⚠️ Solución Ilimitada</h4>
+          <p style="font-size:0.85rem; line-height:1.5; color: var(--text-gray-light);">
+            El problema no está acotado (se puede incrementar Z indefinidamente). Todas las razones del coeficiente pivote son negativas o cero.
+          </p>
+        </div>
+      `;
+      return;
+    }
+
+    // 3. Highlight the pivot element for recording
+    const pivotVal = tableau[leavingRow][enteringCol].r;
+
+    // Record step description
+    const enteringVarName = colNames[enteringCol];
+    const leavingVarName = currentBasis[leavingRow];
+    
+    // Perform Pivot update
+    // Scale leaving row
+    for (let j = 0; j <= rhsCol; j++) {
+      tableau[leavingRow][j] = tableau[leavingRow][j].div(pivotVal);
+    }
+
+    // Zero out other rows
+    for (let i = 0; i <= numConst; i++) {
+      if (i !== leavingRow) {
+        const factor = tableau[i][enteringCol];
+        for (let j = 0; j <= rhsCol; j++) {
+          tableau[i][j] = tableau[i][j].sub(factor.mul(tableau[leavingRow][j]));
+        }
+      }
+    }
+
+    // Update basis
+    currentBasis[leavingRow] = enteringVarName;
+    iterations++;
+
+    // Record this iteration tableau
+    recordIteration(
+      tableau, 
+      colNames, 
+      currentBasis, 
+      numConst, 
+      rhsCol, 
+      `Iteración ${iterations}: Entra ${enteringVarName}, Sale ${leavingVarName} (Pivote: ${formatNumber(pivotVal)})`, 
+      iterationsLog,
+      leavingRow,
+      enteringCol
+    );
+  }
+
+  // Check feasibility (are artificial variables present in basis with positive values?)
+  let infeasible = false;
+  for (let i = 0; i < numConst; i++) {
+    if (currentBasis[i].startsWith('a') && Math.abs(tableau[i][rhsCol].r) > 1e-4) {
+      infeasible = true;
+    }
+  }
+
+  // Z-optimal final calculation
+  // Final Z is tableau[numConst][rhsCol].r
+  let finalZ = tableau[numConst][rhsCol].r * scale;
+  
+  // Clean up floating point errors
+  if (Math.abs(finalZ - Math.round(finalZ)) < 1e-6) finalZ = Math.round(finalZ);
+
+  let finalHTML = stdHTML;
+  
+  // Render iteration steps
+  iterationsLog.forEach((step, idx) => {
+    finalHTML += renderTableauHTML(step, idx);
+  });
+
+  if (infeasible) {
+    finalHTML += `
+      <div class="optimal-solution-card" style="border-color: #ffbd2e; background: rgba(255,189,46,0.05);">
+        <h4 style="color:#ffbd2e;">⚠️ Sistema Infactible</h4>
+        <p style="font-size:0.85rem; line-height:1.5; color: var(--text-gray-light);">
+          No existe una solución factible que cumpla con todas las restricciones del modelo. Alguna variable artificial permaneció en la base con un valor mayor a cero.
+        </p>
+      </div>
+    `;
+  } else {
+    // Build optimal variables report
+    let varsReportHTML = "";
+    const optimalValues = {};
+    
+    // Initialize all decision vars to 0
+    for (let j = 1; j <= numVars; j++) {
+      optimalValues[`x${j}`] = 0;
+    }
+    // Extract basic variables values
+    for (let i = 0; i < numConst; i++) {
+      const varName = currentBasis[i];
+      let val = tableau[i][rhsCol].r;
+      if (Math.abs(val - Math.round(val)) < 1e-6) val = Math.round(val);
+      optimalValues[varName] = val;
+    }
+
+    for (let j = 1; j <= numVars; j++) {
+      varsReportHTML += `<div class="optimal-var-item">x<sub>${j}</sub> = <span>${formatNumber(optimalValues[`x${j}`])}</span></div>`;
+    }
+
+    finalHTML += `
+      <div class="optimal-solution-card">
+        <h4>🏆 Solución Óptima Encontrada</h4>
+        <p style="font-size: 0.85rem; color: var(--text-gray-muted); margin-bottom: 0.8rem;">
+          El algoritmo finalizó con éxito en <strong>${iterations} iteraciones</strong>. Los valores que maximizan/minimizan Z son:
+        </p>
+        <div class="optimal-vars-list">
+          ${varsReportHTML}
+          <div class="optimal-var-item" style="border-top:1px solid rgba(255,255,255,0.08); padding-top:0.5rem; margin-top:0.3rem;">
+            Valor Óptimo Z = <span style="color: #27c93f; font-size:1.15rem;">${formatNumber(finalZ)}</span>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  output.innerHTML = finalHTML;
+}
+
+function recordIteration(tab, cols, basis, numConst, rhsCol, title, log, pRow = -1, pCol = -1) {
+  // Deep copy matrix
+  const matCopy = [];
+  for (let i = 0; i <= numConst; i++) {
+    const row = [];
+    for (let j = 0; j <= rhsCol; j++) {
+      row.push(new BigM(tab[i][j].r, tab[i][j].m));
+    }
+    matCopy.push(row);
+  }
+  log.push({
+    title,
+    cols: [...cols],
+    basis: [...basis],
+    matrix: matCopy,
+    pivotRow: pRow,
+    pivotCol: pCol
+  });
+}
+
+function renderTableauHTML(step, idx) {
+  const isPurple = step.title.includes('Iteración') || step.title.includes('Gran M');
+  
+  let headerCells = `<th>Base</th>`;
+  step.cols.forEach(col => {
+    headerCells += `<th>${col}</th>`;
+  });
+
+  let rowCells = "";
+  for (let i = 0; i < step.matrix.length - 1; i++) {
+    let cells = `<td><strong>${step.basis[i]}</strong></td>`;
+    for (let j = 0; j < step.matrix[i].length; j++) {
+      const isPivot = (i === step.pivotRow && j === step.pivotCol);
+      const cellVal = step.matrix[i][j].toString();
+      cells += `<td class="${isPivot ? 'simplex-pivot-cell' : ''}">${cellVal}</td>`;
+    }
+    rowCells += `<tr class="${i === step.pivotRow ? 'simplex-pivot-row' : ''}">${cells}</tr>`;
+  }
+
+  // Z-row cell rendering
+  let zCells = `<td><strong>Z</strong></td>`;
+  for (let j = 0; j < step.matrix[step.matrix.length - 1].length; j++) {
+    zCells += `<td>${step.matrix[step.matrix.length - 1][j].toString()}</td>`;
+  }
+  rowCells += `<tr>${zCells}</tr>`;
+
+  return `
+    <div class="iteration-tableau-card">
+      <div class="simplex-iteration-title ${isPurple ? 'purple-title' : ''}">
+        <span>${step.title}</span>
+        <span style="font-family: monospace; font-size: 0.75rem; color: var(--text-gray-dark);">[tabla-${idx}]</span>
+      </div>
+      <div class="simplex-table-wrapper">
+        <table class="simplex-table">
+          <thead>
+            <tr>${headerCells}</tr>
+          </thead>
+          <tbody>
+            ${rowCells}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+/* -------------------------------------------------------------
+   3. HUNGARIAN METHOD SOLVER SYSTEM
+   ------------------------------------------------------------- */
+function initHungarianForm() {
+  const sizeSelect = document.getElementById('hungarian-size');
+  if (!sizeSelect) return;
+
+  const rebuild = () => {
+    const N = parseInt(sizeSelect.value);
+    const container = document.getElementById('hungarian-matrix-container');
+    container.innerHTML = '';
+
+    let tableHTML = `<table class="matrix-grid-table"><thead><tr><th></th>`;
+    for (let j = 1; j <= N; j++) tableHTML += `<th>Tarea ${j}</th>`;
+    tableHTML += `</tr></thead><tbody>`;
+
+    // Cost matrix values placeholder
+    const defaults = [
+      [9, 2, 7, 8, 3],
+      [6, 4, 3, 7, 5],
+      [5, 8, 2, 4, 6],
+      [7, 6, 9, 4, 5],
+      [4, 7, 5, 6, 8]
+    ];
+
+    for (let i = 1; i <= N; i++) {
+      tableHTML += `<tr><th>Recurso ${String.fromCharCode(64 + i)}</th>`;
+      for (let j = 1; j <= N; j++) {
+        let val = defaults[i-1][j-1];
+        tableHTML += `<td><input type="number" id="hungarian-cost-${i}-${j}" value="${val}" class="matrix-grid-input"></td>`;
+      }
+      tableHTML += `</tr>`;
+    }
+    tableHTML += `</tbody></table>`;
+    container.innerHTML = tableHTML;
+  };
+
+  sizeSelect.addEventListener('change', rebuild);
+  rebuild();
+}
+
+function solveHungarianModel() {
+  const optType = document.getElementById('hungarian-opt-type').value;
+  const N = parseInt(document.getElementById('hungarian-size').value);
+  const output = document.getElementById('hungarian-output-area');
+
+  output.innerHTML = '<h3>Resolviendo Modelo Húngaro...</h3>';
+
+  // Read cost matrix
+  const originalMatrix = [];
+  for (let i = 1; i <= N; i++) {
+    const row = [];
+    for (let j = 1; j <= N; j++) {
+      row.push(parseFloat(document.getElementById(`hungarian-cost-${i}-${j}`).value) || 0);
+    }
+    originalMatrix.push(row);
+  }
+
+  // Clone to work matrix
+  let matrix = originalMatrix.map(row => [...row]);
+  let stepsHTML = "";
+
+  // If Maximization, subtract all elements from maximum value
+  if (optType === 'max') {
+    let maxVal = -Infinity;
+    for (let i = 0; i < N; i++) {
+      for (let j = 0; j < N; j++) {
+        if (matrix[i][j] > maxVal) maxVal = matrix[i][j];
+      }
+    }
+    stepsHTML += `<div class="hungarian-step-card">
+      <div class="hungarian-step-title">Maximización a Minimización</div>
+      <p style="font-size:0.8rem; color:var(--text-gray-muted); margin-bottom: 0.5rem;">
+        Se resta cada costo del valor máximo de la matriz (${maxVal}) para convertir el problema en uno de minimización:
+      </p>
+      ${renderHungarianMatrixHTML(matrix.map(row => row.map(v => maxVal - v)))}
+    </div>`;
+    
+    matrix = matrix.map(row => row.map(v => maxVal - v));
+  }
+
+  // Step 1: Row Reduction
+  const rowMins = [];
+  for (let i = 0; i < N; i++) {
+    let min = Math.min(...matrix[i]);
+    rowMins.push(min);
+    for (let j = 0; j < N; j++) {
+      matrix[i][j] -= min;
+    }
+  }
+
+  stepsHTML += `<div class="hungarian-step-card">
+    <div class="hungarian-step-title">Paso 1: Reducción de Filas</div>
+    <p style="font-size:0.8rem; color:var(--text-gray-muted); margin-bottom:0.5rem;">
+      Restar el menor costo de cada fila del resto de los costos de esa fila (Mínimos por fila: A=${rowMins[0]}, B=${rowMins[1]}, C=${rowMins[2]}${N >= 4 ? `, D=${rowMins[3]}` : ''}${N >= 5 ? `, E=${rowMins[4]}` : ''}):
+    </p>
+    ${renderHungarianMatrixHTML(matrix)}
+  </div>`;
+
+  // Step 2: Column Reduction
+  const colMins = [];
+  for (let j = 0; j < N; j++) {
+    let min = Infinity;
+    for (let i = 0; i < N; i++) {
+      if (matrix[i][j] < min) min = matrix[i][j];
+    }
+    colMins.push(min);
+    for (let i = 0; i < N; i++) {
+      matrix[i][j] -= min;
+    }
+  }
+
+  stepsHTML += `<div class="hungarian-step-card">
+    <div class="hungarian-step-title">Paso 2: Reducción de Columnas</div>
+    <p style="font-size:0.8rem; color:var(--text-gray-muted); margin-bottom:0.5rem;">
+      Restar el menor costo de cada columna del resto de los costos de esa columna (Mínimos por columna: T1=${colMins[0]}, T2=${colMins[1]}, T3=${colMins[2]}${N >= 4 ? `, T4=${colMins[3]}` : ''}${N >= 5 ? `, T5=${colMins[4]}` : ''}):
+    </p>
+    ${renderHungarianMatrixHTML(matrix)}
+  </div>`;
+
+  // Covering Loop (Step 3 & 4)
+  let optimalCover = false;
+  let loops = 0;
+  const maxLoops = 15;
+
+  while (!optimalCover && loops < maxLoops) {
+    loops++;
+    const covering = findMinCoveringLines(matrix);
+    const linesCount = (covering.rows.length + covering.cols.length);
+
+    if (linesCount >= N) {
+      optimalCover = true;
+      stepsHTML += `<div class="hungarian-step-card">
+        <div class="hungarian-step-title">Paso 3: Cubrir Ceros de Cobertura Óptima</div>
+        <p style="font-size:0.8rem; color:var(--text-gray-muted); margin-bottom:0.5rem;">
+          Se trazaron <strong>${linesCount} líneas</strong> para cubrir todos los ceros en la matriz. Como el número de líneas es igual a la dimensión de la matriz (${N}), se ha llegado al óptimo.
+        </p>
+      </div>`;
+      break;
+    }
+
+    // Step 4: Matrix Adjustment
+    // Find min uncovered element
+    let minUncovered = Infinity;
+    for (let i = 0; i < N; i++) {
+      if (covering.rows.includes(i)) continue;
+      for (let j = 0; j < N; j++) {
+        if (covering.cols.includes(j)) continue;
+        if (matrix[i][j] < minUncovered) minUncovered = matrix[i][j];
+      }
+    }
+
+    // Adjust matrix: subtract minUncovered from uncovered, add to double-covered
+    for (let i = 0; i < N; i++) {
+      for (let j = 0; j < N; j++) {
+        const rowCovered = covering.rows.includes(i);
+        const colCovered = covering.cols.includes(j);
+
+        if (!rowCovered && !colCovered) {
+          matrix[i][j] -= minUncovered;
+        } else if (rowCovered && colCovered) {
+          matrix[i][j] += minUncovered;
+        }
+      }
+    }
+
+    stepsHTML += `<div class="hungarian-step-card">
+      <div class="hungarian-step-title">Ajuste de Matriz (Líneas = ${linesCount} &lt; ${N})</div>
+      <p style="font-size:0.8rem; color:var(--text-gray-muted); margin-bottom:0.5rem;">
+        Se trazan solo ${linesCount} líneas para cubrir ceros. El menor elemento no cubierto es <strong>${minUncovered}</strong>. Se resta de todos los no cubiertos y se suma a las intersecciones:
+      </p>
+      ${renderHungarianMatrixHTML(matrix, covering)}
+    </div>`;
+  }
+
+  // Find assignments using Permutation Search
+  const assignments = findOptimalAssignments(matrix);
+  
+  if (!assignments) {
+    output.innerHTML = stepsHTML + `<div class="optimal-solution-card" style="border-color:#ff5f56; background: rgba(255,95,86,0.05);">Error al encontrar combinaciones.</div>`;
+    return;
+  }
+
+  // Generate results list
+  let totalCost = 0;
+  let listHTML = "";
+  for (let i = 0; i < N; i++) {
+    const assignedCol = assignments[i];
+    const cost = originalMatrix[i][assignedCol];
+    totalCost += cost;
+    listHTML += `<div class="optimal-var-item">
+      Recurso ${String.fromCharCode(64 + i + 1)} &rarr; Tarea ${assignedCol + 1} &nbsp; 
+      <span style="color: var(--text-gray-dark); font-size:0.8rem;">(Costo: ${cost})</span>
+    </div>`;
+  }
+
+  output.innerHTML = stepsHTML + `
+    <div class="optimal-solution-card" style="border-color: var(--primary-purple);">
+      <h4 style="color: var(--primary-purple);">🏆 Asignación Óptima Encontrada</h4>
+      <p style="font-size:0.85rem; color:var(--text-gray-muted); margin-bottom:0.8rem;">
+        Los emparejamientos que ${optType === 'min' ? 'minimizan' : 'maximizan'} los costos totales son:
+      </p>
+      <div class="optimal-vars-list">
+        ${listHTML}
+        <div class="optimal-var-item" style="border-top:1px solid rgba(255,255,255,0.08); padding-top:0.5rem; margin-top:0.3rem;">
+          Costo Total Óptimo = <span style="color: #27c93f; font-size:1.15rem;">$${totalCost}</span>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function findMinCoveringLines(mat) {
+  const N = mat.length;
+  const zeros = [];
+  for (let i = 0; i < N; i++) {
+    for (let j = 0; j < N; j++) {
+      if (Math.abs(mat[i][j]) < 1e-9) zeros.push({ r: i, c: j });
+    }
+  }
+
+  let bestCover = null;
+  let minLines = N + 1;
+  const totalSubsets = 1 << (2 * N);
+
+  for (let mask = 0; mask < totalSubsets; mask++) {
+    let lines = 0;
+    for (let i = 0; i < 2 * N; i++) {
+      if ((mask & (1 << i)) !== 0) lines++;
+    }
+
+    if (lines >= minLines) continue;
+
+    let coversAll = true;
+    for (const zero of zeros) {
+      const rowCov = (mask & (1 << zero.r)) !== 0;
+      const colCov = (mask & (1 << (N + zero.c))) !== 0;
+      if (!rowCov && !colCov) {
+        coversAll = false;
+        break;
+      }
+    }
+
+    if (coversAll) {
+      minLines = lines;
+      const rows = [];
+      const cols = [];
+      for (let i = 0; i < N; i++) {
+        if ((mask & (1 << i)) !== 0) rows.push(i);
+        if ((mask & (1 << (N + i))) !== 0) cols.push(i);
+      }
+      bestCover = { rows, cols };
+    }
+  }
+  return bestCover;
+}
+
+function findOptimalAssignments(mat) {
+  const N = mat.length;
+  
+  // Permutation generator helper
+  const permute = (arr) => {
+    let result = [];
+    const helper = (m, p = []) => {
+      if (m.length === 0) {
+        result.push(p);
+      } else {
+        for (let i = 0; i < m.length; i++) {
+          let curr = m.slice();
+          let next = curr.splice(i, 1);
+          helper(curr.slice(), p.concat(next));
+        }
+      }
+    };
+    helper(arr);
+    return result;
+  };
+
+  const cols = [];
+  for (let j = 0; j < N; j++) cols.push(j);
+  const permutations = permute(cols);
+
+  // Search for permutations containing all zeros
+  for (const perm of permutations) {
+    let valid = true;
+    for (let i = 0; i < N; i++) {
+      if (Math.abs(mat[i][perm[i]]) > 1e-9) {
+        valid = false;
+        break;
+      }
+    }
+    if (valid) return perm;
+  }
+  return null;
+}
+
+function renderHungarianMatrixHTML(mat, covering = null) {
+  const N = mat.length;
+  let headers = "<th></th>";
+  for (let j = 1; j <= N; j++) headers += `<th>T${j}</th>`;
+
+  let rows = "";
+  for (let i = 0; i < N; i++) {
+    let rowCells = `<th>R${String.fromCharCode(65 + i)}</th>`;
+    const rowCovered = covering && covering.rows.includes(i);
+    for (let j = 0; j < N; j++) {
+      const colCovered = covering && covering.cols.includes(j);
+      
+      let style = "";
+      if (rowCovered && colCovered) style = "background: rgba(189,0,255,0.18); border:1px solid var(--primary-purple);";
+      else if (rowCovered || colCovered) style = "background: rgba(0,240,255,0.06);";
+      
+      rowCells += `<td style="${style} font-family: monospace;">${formatNumber(mat[i][j])}</td>`;
+    }
+    rows += `<tr>${rowCells}</tr>`;
+  }
+
+  return `<div class="simplex-table-wrapper" style="max-width:280px; margin: 0 auto;">
+    <table class="simplex-table tp-table">
+      <thead><tr>${headers}</tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
+}
+
+/* -------------------------------------------------------------
+   4. TRANSPORTATION MATRIX SOLVER SYSTEM
+   ------------------------------------------------------------- */
+function initTransportForm() {
+  const selectSources = document.getElementById('transport-sources');
+  const selectDest = document.getElementById('transport-destinations');
+  
+  if (!selectSources || !selectDest) return;
+
+  const rebuild = () => {
+    const M = parseInt(selectSources.value);
+    const N = parseInt(selectDest.value);
+    const container = document.getElementById('transport-matrix-container');
+    container.innerHTML = '';
+
+    let headers = `<th>Origen</th>`;
+    for (let j = 1; j <= N; j++) headers += `<th>Destino ${j}</th>`;
+    headers += `<th>Oferta</th>`;
+
+    // Defaults values for 3x3
+    const defaults = [
+      [4, 2, 7, 10],
+      [6, 3, 5, 8],
+      [3, 8, 6, 4]
+    ];
+    const defaultSupply = [120, 80, 100];
+    const defaultDemand = [150, 70, 80, 50];
+
+    let rowsHTML = "";
+    for (let i = 1; i <= M; i++) {
+      let cells = `<th>S${i}</th>`;
+      for (let j = 1; j <= N; j++) {
+        let val = defaults[i-1] ? (defaults[i-1][j-1] || 5) : 5;
+        cells += `<td><input type="number" id="trans-cost-${i}-${j}" value="${val}" class="matrix-grid-input"></td>`;
+      }
+      let supplyVal = defaultSupply[i-1] || 100;
+      cells += `<td><input type="number" id="trans-supply-${i}" value="${supplyVal}" class="matrix-grid-input" style="border-color:var(--border-purple);"></td>`;
+      rowsHTML += `<tr>${cells}</tr>`;
+    }
+
+    // Demands row
+    let demandCells = `<th>Demanda</th>`;
+    for (let j = 1; j <= N; j++) {
+      let demVal = defaultDemand[j-1] || 80;
+      demandCells += `<td><input type="number" id="trans-demand-${j}" value="${demVal}" class="matrix-grid-input" style="border-color:var(--border-purple);"></td>`;
+    }
+    demandCells += `<td id="trans-total-sum" style="font-family:monospace; font-size:0.75rem; color: var(--text-gray-dark); text-align:center;">300/300</td>`;
+    rowsHTML += `<tr>${demandCells}</tr>`;
+
+    container.innerHTML = `<table class="matrix-grid-table">
+      <thead><tr>${headers}</tr></thead>
+      <tbody>${rowsHTML}</tbody>
+    </table>`;
+  };
+
+  selectSources.addEventListener('change', rebuild);
+  selectDest.addEventListener('change', rebuild);
+  rebuild();
+}
+
+function solveTransportModel() {
+  const M = parseInt(document.getElementById('transport-sources').value);
+  const N = parseInt(document.getElementById('transport-destinations').value);
+  const output = document.getElementById('transport-output-area');
+
+  output.innerHTML = '<h3>Calculando Soluciones Logísticas...</h3>';
+
+  // Read Costs, Supply, Demand
+  const costs = [];
+  for (let i = 1; i <= M; i++) {
+    const row = [];
+    for (let j = 1; j <= N; j++) {
+      row.push(parseFloat(document.getElementById(`trans-cost-${i}-${j}`).value) || 0);
+    }
+    costs.push(row);
+  }
+  const supply = [];
+  for (let i = 1; i <= M; i++) {
+    supply.push(parseFloat(document.getElementById(`trans-supply-${i}`).value) || 0);
+  }
+  const demand = [];
+  for (let j = 1; j <= N; j++) {
+    demand.push(parseFloat(document.getElementById(`trans-demand-${j}`).value) || 0);
+  }
+
+  // Verify balance
+  const sumSupply = supply.reduce((a, b) => a + b, 0);
+  const sumDemand = demand.reduce((a, b) => a + b, 0);
+
+  // Auto Balance
+  let activeCosts = costs.map(row => [...row]);
+  let activeSupply = [...supply];
+  let activeDemand = [...demand];
+  let isBalanced = true;
+  let balanceMsg = "";
+
+  if (sumSupply > sumDemand) {
+    // Add Dummy Destination
+    const diff = sumSupply - sumDemand;
+    isBalanced = false;
+    balanceMsg = `Oferta (${sumSupply}) > Demanda (${sumDemand}). Se crea un Destino Ficticio D<sub>ficticio</sub> con Demanda = ${diff} y costos unitarios de envío = $0.`;
+    activeDemand.push(diff);
+    for (let i = 0; i < M; i++) {
+      activeCosts[i].push(0);
+    }
+  } else if (sumDemand > sumSupply) {
+    // Add Dummy Source
+    const diff = sumDemand - sumSupply;
+    isBalanced = false;
+    balanceMsg = `Demanda (${sumDemand}) > Oferta (${sumSupply}). Se crea un Origen Ficticio S<sub>ficticia</sub> con Oferta = ${diff} y costos unitarios de envío = $0.`;
+    activeSupply.push(diff);
+    const dummyCostRow = Array(N).fill(0);
+    activeCosts.push(dummyCostRow);
+  }
+
+  const numS = activeSupply.length;
+  const numD = activeDemand.length;
+
+  // Northwest Corner Method solver
+  const nwAllocations = Array(numS).fill(null).map(() => Array(numD).fill(0));
+  let nwSupply = [...activeSupply];
+  let nwDemand = [...activeDemand];
+  let nwCost = 0;
+  let i = 0, j = 0;
+  while (i < numS && j < numD) {
+    let alloc = Math.min(nwSupply[i], nwDemand[j]);
+    nwAllocations[i][j] = alloc;
+    nwSupply[i] -= alloc;
+    nwDemand[j] -= alloc;
+    nwCost += alloc * activeCosts[i][j];
+
+    if (nwSupply[i] === 0) i++;
+    else if (nwDemand[j] === 0) j++;
+  }
+
+  // Minimum Cost Method solver
+  const mcAllocations = Array(numS).fill(null).map(() => Array(numD).fill(0));
+  let mcSupply = [...activeSupply];
+  let mcDemand = [...activeDemand];
+  let mcCost = 0;
+  let mcRemainingCells = [];
+  for (let r = 0; r < numS; r++) {
+    for (let c = 0; c < numD; c++) {
+      mcRemainingCells.push({ r, c, cost: activeCosts[r][c] });
+    }
+  }
+  // Sort cells by cost ascending
+  mcRemainingCells.sort((a, b) => a.cost - b.cost);
+
+  while (mcRemainingCells.length > 0) {
+    // Find first cell with available supply and demand
+    const cellIdx = mcRemainingCells.findIndex(cell => mcSupply[cell.r] > 0 && mcDemand[cell.c] > 0);
+    if (cellIdx === -1) break;
+
+    const cell = mcRemainingCells[cellIdx];
+    let alloc = Math.min(mcSupply[cell.r], mcDemand[cell.c]);
+    mcAllocations[cell.r][cell.c] = alloc;
+    mcSupply[cell.r] -= alloc;
+    mcDemand[cell.c] -= alloc;
+    mcCost += alloc * activeCosts[cell.r][cell.c];
+    
+    mcRemainingCells.splice(cellIdx, 1);
+  }
+
+  // Vogel's Approximation Method solver
+  const vamAllocations = Array(numS).fill(null).map(() => Array(numD).fill(0));
+  let vamSupply = [...activeSupply];
+  let vamDemand = [...activeDemand];
+  let vamCost = 0;
+  let rowActive = Array(numS).fill(true);
+  let colActive = Array(numD).fill(true);
+
+  let stepsRemaining = numS + numD - 1;
+  while (stepsRemaining > 0) {
+    // 1. Calculate row difference
+    const rowDiffs = [];
+    for (let r = 0; r < numS; r++) {
+      if (!rowActive[r]) {
+        rowDiffs.push(-1);
+        continue;
+      }
+      // Find 2 lowest active costs in row r
+      const activeRowCosts = [];
+      for (let c = 0; c < numD; c++) {
+        if (colActive[c]) activeRowCosts.push({ c, cost: activeCosts[r][c] });
+      }
+      activeRowCosts.sort((a, b) => a.cost - b.cost);
+      if (activeRowCosts.length >= 2) {
+        rowDiffs.push(activeRowCosts[1].cost - activeRowCosts[0].cost);
+      } else if (activeRowCosts.length === 1) {
+        rowDiffs.push(activeRowCosts[0].cost);
+      } else {
+        rowDiffs.push(-1);
+      }
+    }
+
+    // 2. Calculate col difference
+    const colDiffs = [];
+    for (let c = 0; c < numD; c++) {
+      if (!colActive[c]) {
+        colDiffs.push(-1);
+        continue;
+      }
+      const activeColCosts = [];
+      for (let r = 0; r < numS; r++) {
+        if (rowActive[r]) activeColCosts.push({ r, cost: activeCosts[r][c] });
+      }
+      activeColCosts.sort((a, b) => a.cost - b.cost);
+      if (activeColCosts.length >= 2) {
+        colDiffs.push(activeColCosts[1].cost - activeColCosts[0].cost);
+      } else if (activeColCosts.length === 1) {
+        colDiffs.push(activeColCosts[0].cost);
+      } else {
+        colDiffs.push(-1);
+      }
+    }
+
+    // Find max difference
+    let maxDiff = -Infinity;
+    let targetType = ""; // "row" or "col"
+    let targetIdx = -1;
+
+    for (let r = 0; r < numS; r++) {
+      if (rowDiffs[r] > maxDiff) {
+        maxDiff = rowDiffs[r];
+        targetType = "row";
+        targetIdx = r;
+      }
+    }
+    for (let c = 0; c < numD; c++) {
+      if (colDiffs[c] > maxDiff) {
+        maxDiff = colDiffs[c];
+        targetType = "col";
+        targetIdx = c;
+      }
+    }
+
+    if (targetIdx === -1) break;
+
+    // In target row/col, find cell with min cost
+    let pRow = -1;
+    let pCol = -1;
+    let minCost = Infinity;
+
+    if (targetType === "row") {
+      pRow = targetIdx;
+      for (let c = 0; c < numD; c++) {
+        if (colActive[c] && activeCosts[pRow][c] < minCost) {
+          minCost = activeCosts[pRow][c];
+          pCol = c;
+        }
+      }
+    } else {
+      pCol = targetIdx;
+      for (let r = 0; r < numS; r++) {
+        if (rowActive[r] && activeCosts[r][pCol] < minCost) {
+          minCost = activeCosts[r][pCol];
+          pRow = r;
+        }
+      }
+    }
+
+    // Allocate
+    let alloc = Math.min(vamSupply[pRow], vamDemand[pCol]);
+    vamAllocations[pRow][pCol] = alloc;
+    vamSupply[pRow] -= alloc;
+    vamDemand[pCol] -= alloc;
+    vamCost += alloc * activeCosts[pRow][pCol];
+
+    if (vamSupply[pRow] === 0) rowActive[pRow] = false;
+    if (vamDemand[pCol] === 0) colActive[pCol] = false;
+    
+    stepsRemaining--;
+  }
+
+  // Build Output HTML
+  let resultHTML = "";
+  if (!isBalanced) {
+    resultHTML += `<div class="simplex-interpretation" style="margin-bottom:1rem; border-color:var(--primary-purple); background:rgba(189,0,255,0.02)">
+      <strong>💡 Ajuste de Balanceo:</strong> ${balanceMsg}
+    </div>`;
+  }
+
+  // Draw allocations table for Vogel (VAM) which usually is the best initial solution
+  let tableHeaders = "<th>Origen</th>";
+  for (let j = 1; j <= numD; j++) {
+    const isDummy = (j === numD && sumSupply > sumDemand);
+    tableHeaders += `<th>Destino ${isDummy ? 'Ficticio' : j}</th>`;
+  }
+  tableHeaders += "<th>Oferta</th>";
+
+  let tableRows = "";
+  for (let r = 0; r < numS; r++) {
+    const isDummyRow = (r === numS && sumDemand > sumSupply);
+    let cells = `<th>S${isDummyRow ? 'Ficticio' : r+1}</th>`;
+    for (let c = 0; c < numD; c++) {
+      const alloc = vamAllocations[r][c];
+      const cost = activeCosts[r][c];
+      if (alloc > 0) {
+        cells += `<td class="tp-cell allocated">
+          <span class="tp-cell-cost">$${cost}</span>
+          <div class="tp-cell-alloc">${alloc}</div>
+        </td>`;
+      } else {
+        cells += `<td class="tp-cell">
+          <span class="tp-cell-cost" style="color:var(--text-gray-dark);">$${cost}</span>
+          <div class="tp-cell-alloc" style="color:transparent; font-size:0.8rem;">-</div>
+        </td>`;
+      }
+    }
+    cells += `<td><strong>${activeSupply[r]}</strong></td>`;
+    tableRows += `<tr>${cells}</tr>`;
+  }
+
+  // Demands Row
+  let demandCells = "<th>Demanda</th>";
+  for (let c = 0; c < numD; c++) {
+    demandCells += `<td><strong>${activeDemand[c]}</strong></td>`;
+  }
+  demandCells += `<td><strong>${sumSupply}</strong></td>`;
+  tableRows += `<tr>${demandCells}</tr>`;
+
+  resultHTML += `
+    <div class="iteration-tableau-card">
+      <div class="simplex-iteration-title">Matriz de Distribución (Vogel - VAM)</div>
+      <div class="simplex-table-wrapper">
+        <table class="simplex-table tp-table">
+          <thead><tr>${tableHeaders}</tr></thead>
+          <tbody>${tableRows}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  // Compare summary
+  resultHTML += `
+    <div class="tp-compare-card" style="margin-bottom: 1.5rem;">
+      <div class="simplex-log-title" style="margin-bottom:0.5rem;">Comparación de Métodos Logísticos</div>
+      <div style="font-size:0.75rem; color:var(--text-gray-muted); margin-bottom:1rem;">Costos totales de transporte estimados para cada algoritmo:</div>
+      
+      <div class="tp-compare-row">
+        <span class="tp-comp-name">Esquina Noroeste (NW Corner)</span>
+        <span class="tp-comp-val">$${nwCost.toLocaleString()}</span>
+      </div>
+      <div class="tp-compare-row">
+        <span class="tp-comp-name">Costo Mínimo (Least Cost)</span>
+        <span class="tp-comp-val">$${mcCost.toLocaleString()}</span>
+      </div>
+      <div class="tp-compare-row">
+        <span class="tp-comp-name">Aproximación de Vogel (VAM)</span>
+        <span class="tp-comp-val best">🏆 $${vamCost.toLocaleString()}</span>
+      </div>
+    </div>
+
+    <div class="simplex-interpretation">
+      <strong>💡 Análisis Logístico:</strong> El método de **Vogel (VAM)** proporciona el plan de distribución inicial óptimo con un costo total de **$${vamCost.toLocaleString()}**. Esto representa un ahorro comparado con otros modelos.
+    </div>
+  `;
+
+  output.innerHTML = resultHTML;
+}
+
+/* -------------------------------------------------------------
+   5. EOQ INVENTORY SOLVER SYSTEM
+   ------------------------------------------------------------- */
+function solveEoqModel() {
+  const D = parseFloat(document.getElementById('eoq-in-D').value) || 1000;
+  const S = parseFloat(document.getElementById('eoq-in-S').value) || 50;
+  const H = parseFloat(document.getElementById('eoq-in-H').value) || 5;
+  const L = parseFloat(document.getElementById('eoq-in-L').value) || 7;
+
+  // EOQ Formula: Q = sqrt(2DS/H)
+  const Q = Math.sqrt((2 * D * S) / H);
+  const N = D / Q;
+  const T = 365 / N;
+  const TC = (D / Q) * S + (Q / 2) * H;
+  const ROP = (D / 365) * L;
+
+  // Update Summary numbers
+  document.getElementById('res-eoq-q').textContent = Math.round(Q) + ' u';
+  document.getElementById('res-eoq-n').textContent = N.toFixed(1);
+  document.getElementById('res-eoq-t').textContent = Math.round(T) + ' días';
+  document.getElementById('res-eoq-rop').textContent = ROP.toFixed(1) + ' u';
+  document.getElementById('res-eoq-tc').textContent = '$' + Math.round(TC).toLocaleString();
+
+  // Update Formulas Applied Card
+  document.getElementById('f-calc-eoq').innerHTML = `EOQ = &radic;( 2 &middot; ${D} &middot; ${S} / ${H} ) = <strong>${Q.toFixed(2)} unidades</strong>`;
+  document.getElementById('f-calc-n').innerHTML = `N = ${D} / ${Q.toFixed(2)} = <strong>${N.toFixed(2)} pedidos/año</strong>`;
+  document.getElementById('f-calc-t').innerHTML = `T = 365 / ${N.toFixed(2)} = <strong>${T.toFixed(2)} días</strong>`;
+  document.getElementById('f-calc-tc').innerHTML = `TC = (${D} / ${Q.toFixed(2)})&middot;${S} + (${Q.toFixed(2)} / 2)&middot;${H} = <strong>$${TC.toFixed(2)}/año</strong>`;
+  document.getElementById('f-calc-rop').innerHTML = `ROP = (${D} / 365) &middot; ${L} = <strong>${ROP.toFixed(2)} unidades</strong>`;
+
+  // Draw chart
+  drawEoqChart(Q, D, S, H);
+}
+
+function drawEoqChart(optimalQ, D, S, H) {
+  const canvas = document.getElementById('live-eoq-canvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  
+  // Set dimensions based on wrapper size
+  const parent = canvas.parentNode;
+  canvas.width = parent.clientWidth;
+  canvas.height = parent.clientHeight || 220;
+
+  const w = canvas.width;
+  const h = canvas.height;
+  const padLeft = 45;
+  const padBottom = 30;
+  const padTop = 15;
+  const padRight = 15;
+  
+  ctx.clearRect(0, 0, w, h);
+  
+  // Generate curve coordinates
+  const pointsCount = 50;
+  const maxQ = optimalQ * 2.3;
+  const minQ = optimalQ * 0.15;
+  
+  const qs = [];
+  const carryingCosts = [];
+  const orderingCosts = [];
+  const totalCosts = [];
+  
+  for (let i = 0; i < pointsCount; i++) {
+    const q = minQ + (maxQ - minQ) * (i / (pointsCount - 1));
+    qs.push(q);
+    
+    const hold = (q / 2) * H;
+    const order = (D / q) * S;
+    carryingCosts.push(hold);
+    orderingCosts.push(order);
+    totalCosts.push(hold + order);
+  }
+  
+  const maxCost = Math.max(...totalCosts) * 0.85;
+  const minCost = 0;
+  
+  const getX = q => padLeft + ((q - minQ) / (maxQ - minQ)) * (w - padLeft - padRight);
+  const getY = cost => h - padBottom - ((cost - minCost) / (maxCost - minCost)) * (h - padBottom - padTop);
+  
+  // Draw Grid Lines & Axes
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+  ctx.lineWidth = 1;
+  
+  for (let i = 1; i <= 4; i++) {
+    const yVal = getY(maxCost * (i / 4));
+    ctx.beginPath();
+    ctx.moveTo(padLeft, yVal);
+    ctx.lineTo(w - padRight, yVal);
+    ctx.stroke();
+    
+    ctx.fillStyle = '#6b7280';
+    ctx.font = '8px monospace';
+    ctx.fillText('$' + Math.round(maxCost * (i / 4)), 10, yVal + 3);
+  }
+  
+  // Draw curves
+  const drawCurve = (costs, color, width, dashed = false) => {
+    ctx.beginPath();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    if (dashed) ctx.setLineDash([4, 4]);
+    else ctx.setLineDash([]);
+    
+    ctx.moveTo(getX(qs[0]), getY(costs[0]));
+    for (let i = 1; i < pointsCount; i++) {
+      ctx.lineTo(getX(qs[i]), getY(costs[i]));
+    }
+    ctx.stroke();
+  };
+  
+  drawCurve(carryingCosts, '#bd00ff', 1.5, true);  // holding cost (purple)
+  drawCurve(orderingCosts, '#ff5f56', 1.5, true);  // ordering cost (red)
+  drawCurve(totalCosts, '#00f0ff', 2.5);            // total cost (cyan)
+  
+  // Optimal line helper
+  const optX = getX(optimalQ);
+  const optY = getY((optimalQ / 2) * H + (D / optimalQ) * S);
+  
+  // Draw optimal intersection lines
+  ctx.setLineDash([3, 3]);
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+  ctx.beginPath();
+  ctx.moveTo(optX, h - padBottom);
+  ctx.lineTo(optX, optY);
+  ctx.stroke();
+  
+  ctx.beginPath();
+  ctx.moveTo(padLeft, optY);
+  ctx.lineTo(optX, optY);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  
+  // Draw optimal dot
+  ctx.fillStyle = '#00f0ff';
+  ctx.shadowBlur = 10;
+  ctx.shadowColor = '#00f0ff';
+  ctx.beginPath();
+  ctx.arc(optX, optY, 5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.shadowBlur = 0; // reset
+  
+  // Label X axis
+  ctx.fillStyle = '#9ca3af';
+  ctx.font = '9px sans-serif';
+  ctx.fillText('Q* = ' + Math.round(optimalQ) + ' u', optX - 25, h - 8);
+  
+  // Draw Axes
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+  ctx.beginPath();
+  ctx.moveTo(padLeft, padTop);
+  ctx.lineTo(padLeft, h - padBottom);
+  ctx.lineTo(w - padRight, h - padBottom);
+  ctx.stroke();
+}
+
+/* -------------------------------------------------------------
+   6. MARKOV TRANSITION & STABLE STATES
+   ------------------------------------------------------------- */
+function solveMarkovModel() {
+  const inputs = [
+    [document.getElementById('m00'), document.getElementById('m01'), document.getElementById('m02')],
+    [document.getElementById('m10'), document.getElementById('m11'), document.getElementById('m12')],
+    [document.getElementById('m20'), document.getElementById('m21'), document.getElementById('m22')]
+  ];
+  
+  if (!inputs[0][0]) return;
+
+  const P = [];
+  for (let i = 0; i < 3; i++) {
+    const row = [];
+    let sum = 0;
+    for (let j = 0; j < 3; j++) {
+      let val = parseFloat(inputs[i][j].value) || 0;
+      row.push(val);
+      sum += val;
+    }
+    P.push(row);
+    
+    // Highlight rows that do not sum to 1.0
+    if (Math.abs(sum - 1.0) > 0.02) {
+      inputs[i].forEach(inp => {
+        inp.style.borderColor = 'rgba(255, 95, 86, 0.5)';
+        inp.style.boxShadow = '0 0 8px rgba(255, 95, 86, 0.1)';
+      });
+    } else {
+      inputs[i].forEach(inp => {
+        inp.style.borderColor = '';
+        inp.style.boxShadow = '';
+      });
+    }
+  }
+
+  // Solve system of equations for steady states:
+  // pi_0 = pi_0*P00 + pi_1*P10 + pi_2*P20  => pi_0(P00 - 1) + pi_1*P10 + pi_2*P20 = 0
+  // pi_1 = pi_0*P01 + pi_1*P11 + pi_2*P21  => pi_0*P01 + pi_1(P11 - 1) + pi_2*P21 = 0
+  // pi_0 + pi_1 + pi_2 = 1.0
+  //
+  // Let variables be x, y, z representing pi_0, pi_1, pi_2
+  // Equation 1: a1*x + b1*y + c1*z = d1  => (P00-1)*x + P10*y + P20*z = 0
+  // Equation 2: a2*x + b2*y + c2*z = d2  => P01*x + (P11-1)*y + P21*z = 0
+  // Equation 3: a3*x + b3*y + c3*z = d3  => 1*x + 1*y + 1*z = 1
+  
+  const a1 = P[0][0] - 1, b1 = P[1][0], c1 = P[2][0], d1 = 0;
+  const a2 = P[0][1], b2 = P[1][1] - 1, c2 = P[2][1], d2 = 0;
+  const a3 = 1, b3 = 1, c3 = 1, d3 = 1;
+
+  // Cramer's rule determinants
+  const Det = a1*(b2*c3 - b3*c2) - b1*(a2*c3 - a3*c2) + c1*(a2*b3 - a3*b2);
+  let pi0 = 0, pi1 = 0, pi2 = 0;
+
+  if (Math.abs(Det) > 1e-9) {
+    const DetX = d1*(b2*c3 - b3*c2) - b1*(d2*c3 - d3*c2) + c1*(d2*b3 - d3*b2);
+    const DetY = a1*(d2*c3 - d3*c2) - d1*(a2*c3 - a3*c2) + c1*(a2*d3 - a3*d2);
+    const DetZ = a1*(b2*d3 - b3*d2) - b1*(a2*d3 - a3*d2) + d1*(a2*b3 - a3*b2);
+    
+    pi0 = DetX / Det;
+    pi1 = DetY / Det;
+    pi2 = DetZ / Det;
+  }
+
+  // Update steady state text outputs
+  const output = document.getElementById('markov-steady-output');
+  output.innerHTML = `
+    &pi;₁ = <strong>${(pi0 * 100).toFixed(1)}%</strong> &nbsp;&nbsp;
+    &pi;₂ = <strong>${(pi1 * 100).toFixed(1)}%</strong> &nbsp;&nbsp;
+    &pi;₃ = <strong>${(pi2 * 100).toFixed(1)}%</strong>
+  `;
+
+  // Scale flow dynamic SVG dots speed
+  const p1_val = P[0][1]; // S1 -> S2 (p-dot-1)
+  const p2_val = P[1][0]; // S2 -> S1 (p-dot-2)
+  const p3_val = P[2][1]; // S3 -> S2 (p-dot-3)
+  const p4_val = P[0][2]; // S1 -> S3 (p-dot-4)
+  
+  const animateDot = (dotId, prob) => {
+    const dot = document.getElementById(dotId);
+    if (!dot) return;
+    if (prob <= 0.01) {
+      dot.style.display = 'none';
+    } else {
+      dot.style.display = 'block';
+      const anim = dot.querySelector('animateMotion');
+      if (anim) {
+        // High probability = faster flow (shorter duration)
+        anim.setAttribute('dur', (3.5 / prob).toFixed(1) + 's');
+      }
+    }
+  };
+  
+  animateDot('p-dot-1', p1_val);
+  animateDot('p-dot-2', p2_val);
+  animateDot('p-dot-3', p3_val);
+  animateDot('p-dot-4', p4_val);
+}
