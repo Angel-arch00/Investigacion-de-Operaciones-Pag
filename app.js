@@ -512,9 +512,11 @@ function runSimplexSolver(prefix) {
   }
 
   // Standard form HTML
-  let variablesIntroText = prefix === 'simplex' 
-    ? "Se introducen variables de holgura ($s_i$)." 
-    : "Se introducen variables de holgura ($s_i$), exceso ($e_i$) y artificiales ($a_i$).";
+  const introParts = [];
+  if (numSlacks > 0) introParts.push("holgura ($s_i$)");
+  if (numSurplus > 0) introParts.push("exceso ($e_i$)");
+  if (numArtificials > 0) introParts.push("artificiales ($a_i$)");
+  let variablesIntroText = "Se introducen variables de " + introParts.join(", ").replace(/, ([^,]*)$/, ' y $1') + ".";
 
   let stdHTML = `<div class="iteration-tableau-card" style="border-color: var(--border-active);">
     <h4 style="color: var(--primary-cyan); font-size: 0.95rem; margin-bottom: 0.5rem;">Forma Estándar (PL)</h4>
@@ -528,7 +530,8 @@ function runSimplexSolver(prefix) {
     stdHTML += `${c[j]}x<sub>${j+1}</sub> ${j < numVars - 1 ? '+ ' : ''}`;
   }
   if (numArtificials > 0) {
-    stdHTML += ` - M(`;
+    const mSign = (optType === 'max') ? '-' : '+';
+    stdHTML += ` ${mSign} M(`;
     for (let k = 1; k <= numArtificials; k++) {
       stdHTML += `a<sub>${k}</sub>${k < numArtificials ? '+' : ''}`;
     }
